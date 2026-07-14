@@ -13,6 +13,9 @@ permissions:
 jobs:
   license-header-check:
     name: License Header Check
-    uses: linuxfoundation/lfx-public-workflows/.github/workflows/license-header-check.yml@main
+    # Pinned to main as of 2026-07-14 (no tagged releases are published for
+    # this repo); bump the SHA periodically to pick up upstream fixes.
+    uses: >-
+      linuxfoundation/lfx-public-workflows/.github/workflows/license-header-check.yml@8313b4b18b95d750f99a78d5ea160d851afbc40b
     with:
       copyright_line: "Copyright The Linux Foundation and each contributor to LFX."
