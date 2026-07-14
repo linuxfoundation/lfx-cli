@@ -107,6 +107,12 @@ install-tools:
 	@echo "Installing development tools..."
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	go install github.com/goreleaser/goreleaser/v2@latest
+	go install github.com/mgechev/revive@latest
+	@gobin="$$(go env GOPATH)/bin"; \
+	case ":$$PATH:" in \
+		*":$$gobin:"*) ;; \
+		*) echo "Warning: $$gobin is not in your PATH; installed tools (golangci-lint, goreleaser, revive) won't be found. Add it to your PATH, e.g.: export PATH=\"$$PATH:$$gobin\"" ;; \
+	esac
 
 # Run MegaLinter locally via Docker (matches CI Go flavor at v9.6.0).
 # Keep this version in sync with .github/workflows/mega-linter.yml.
