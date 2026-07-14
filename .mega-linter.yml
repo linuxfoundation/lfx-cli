@@ -7,6 +7,11 @@ DISABLE_LINTERS:
   - GO_GOLANGCI_LINT
   # yamllint is sufficient for us.
   - YAML_PRETTIER
+DISABLE_ERRORS_LINTERS:
+  # Currently disabled upstream by MegaLinter itself (supply chain
+  # compromise). Keep it non-blocking here so a future upstream restore
+  # doesn't unexpectedly break the build before we've reviewed it.
+  - REPOSITORY_KICS
 YAML_YAMLLINT_CONFIG_FILE: .yamllint
 SPELL_CSPELL_ANALYZE_FILE_NAMES: false
 # Ignore YAML files with templating macros; these typically fail linting and/or

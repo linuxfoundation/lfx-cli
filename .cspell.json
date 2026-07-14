@@ -10,6 +10,7 @@
     "cpuprof",
     "ehthumbs",
     "goarch",
+    "gofmt",
     "golangci",
     "goreleaser",
     "ldflags",
