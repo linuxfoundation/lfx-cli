@@ -9,9 +9,12 @@ CMD_DIR=./cmd/lfx
 BUILD_DIR=./bin
 
 # Build flags. Version is not injected via -ldflags: `go build` already
-# embeds VCS info (module pseudo-version, revision, dirty state) into the
-# binary's build info, which main.go reads via debug.ReadBuildInfo() as a
-# fallback. This keeps `make build` and `go install ...@latest` consistent.
+# embeds a pseudo-version (encoding the VCS revision, commit time, and
+# dirty state) into the binary's module version, which main.go reads via
+# debug.ReadBuildInfo() as a fallback. A local `make build` therefore
+# reports a traceable pseudo-version like v0.0.0-<time>-<revision>[+dirty],
+# while `go install ...@vX.Y.Z` reports the resolved tag instead; the
+# formats differ, but both identify the exact source that was built.
 LDFLAGS=-ldflags="-s -w"
 
 # Default target. Recursive $(MAKE) calls serialize the three phases so

@@ -143,8 +143,14 @@ func NewExampleCommand() *cli.Command {
 ### Package Comments
 
 Every file in a package must start with the same `// Package <name> ...`
-doc comment immediately above the `package` declaration (required by
-MegaLinter's revive `package-comments` rule). Do not vary the wording
+doc comment immediately above the `package` declaration. Revive's
+`package-comments` rule itself only requires one such comment per package,
+but MegaLinter's `GO_REVIVE` linter defaults to `GO_REVIVE_CLI_LINT_MODE:
+list_of_files`, invoking revive with a flat list of files instead of
+`./...`. Under that mode revive loses per-package grouping and flags any
+file lacking the comment, so duplicating the identical comment across
+every file in a package is a required workaround for how MegaLinter calls
+revive here, not an inherent revive requirement. Do not vary the wording
 between files in the same package.
 
 ## Documentation Generation
