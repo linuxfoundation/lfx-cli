@@ -1,4 +1,4 @@
-// Copyright The Linux Foundation and contributors.
+// Copyright The Linux Foundation and each contributor to LFX.
 // SPDX-License-Identifier: MIT
 
 // Package commands implements the lfx CLI subcommands.
