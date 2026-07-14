@@ -7,7 +7,6 @@
 BINARY_NAME=lfx
 CMD_DIR=./cmd/lfx
 BUILD_DIR=./bin
-GO_FILES=$(shell find . -name "*.go" -type f)
 
 # Version string: clean tag on a tagged commit, tag+offset+hash between tags,
 # with a -dirty suffix if there are uncommitted changes.
@@ -20,9 +19,7 @@ LDFLAGS=-ldflags="-s -w -X main.version=$(VERSION)"
 all: clean check build
 
 # Build the binary
-build: $(BUILD_DIR)/$(BINARY_NAME)
-
-$(BUILD_DIR)/$(BINARY_NAME): $(GO_FILES)
+build:
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)
@@ -97,7 +94,7 @@ deps:
 # Install development tools
 install-tools:
 	@echo "Installing development tools..."
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	go install github.com/goreleaser/goreleaser/v2@latest
 
 # Run MegaLinter locally via Docker (matches CI Go flavor at v9.6.0).
