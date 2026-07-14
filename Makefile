@@ -8,15 +8,20 @@ BINARY_NAME=lfx
 CMD_DIR=./cmd/lfx
 BUILD_DIR=./bin
 
-# Version string: clean tag on a tagged commit, tag+offset+hash between tags,
-# with a -dirty suffix if there are uncommitted changes.
-VERSION := $(shell git describe --tags --dirty --always 2>/dev/null || echo "dev")
+# Build flags. Version is not injected via -ldflags: `go build` already
+# embeds VCS info (module pseudo-version, revision, dirty state) into the
+# binary's build info, which main.go reads via debug.ReadBuildInfo() as a
+# fallback. This keeps `make build` and `go install ...@latest` consistent.
+LDFLAGS=-ldflags="-s -w"
 
-# Build flags
-LDFLAGS=-ldflags="-s -w -X main.version=$(VERSION)"
-
-# Default target
-all: clean check build
+# Default target. Recursive $(MAKE) calls serialize the three phases so
+# `make -j all` reliably leaves a checked, up-to-date binary even under
+# parallel make (clean/build/check would otherwise race on bin/lfx and
+# on source files being formatted while read).
+all:
+	$(MAKE) clean
+	$(MAKE) check
+	$(MAKE) build
 
 # Build the binary
 build:
@@ -29,8 +34,11 @@ clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(BUILD_DIR)
 
-# Run all checks
-check: fmt vet lint revive goreleaser-check
+# Run all checks. fmt rewrites source files, so it must complete before
+# the read-only checks run; those are safe to parallelize with each other.
+check:
+	$(MAKE) fmt
+	$(MAKE) vet lint revive goreleaser-check
 
 # Format Go code
 fmt:
