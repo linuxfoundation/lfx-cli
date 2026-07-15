@@ -1,0 +1,6 @@
+# Ignore local Kubernetes paths.
+^https?://[a-zA-Z0-9.-]+\.svc\.cluster\.local
+
+# megalinter.io redirects (e.g. /configuration/ -> /latest/configuration/) and
+# has been flaky/404-prone for lychee; not worth failing CI over.
+^https?://megalinter\.io/

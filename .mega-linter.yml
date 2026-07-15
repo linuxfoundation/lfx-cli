@@ -1,0 +1,23 @@
+# Copyright The Linux Foundation and each contributor to LFX.
+# SPDX-License-Identifier: MIT
+---
+GITHUB_COMMENT_REPORTER: false
+DISABLE_LINTERS:
+  # Prefer Revive.
+  - GO_GOLANGCI_LINT
+  # yamllint is sufficient for us.
+  - YAML_PRETTIER
+DISABLE_ERRORS_LINTERS:
+  # Currently disabled upstream by MegaLinter itself (supply chain
+  # compromise). Keep it non-blocking here so a future upstream restore
+  # doesn't unexpectedly break the build before we've reviewed it.
+  - REPOSITORY_KICS
+  # There's no easy local feedback loop for spelling issues before
+  # pushing, so keep them non-blocking to avoid unnecessary PR cycles
+  # for words that just need adding to the dictionary.
+  - SPELL_CSPELL
+YAML_YAMLLINT_CONFIG_FILE: .yamllint
+SPELL_CSPELL_ANALYZE_FILE_NAMES: false
+# Ignore YAML files with templating macros; these typically fail linting and/or
+# schema checking.
+FILTER_REGEX_EXCLUDE: '(templates/.*\.yml|templates/.*\.yaml)'
