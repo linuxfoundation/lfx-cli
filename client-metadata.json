@@ -1,7 +1,6 @@
 {
   "client_id": "https://linuxfoundation.github.io/lfx-cli/client-metadata.json",
   "client_name": "LFX CLI",
-  "client_uri": "https://github.com/linuxfoundation/lfx-cli",
   "logo_uri": "https://www.static.linuxfound.org/auth0/c/lf.png",
   "grant_types": [
     "authorization_code",
