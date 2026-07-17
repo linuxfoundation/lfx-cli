@@ -5,10 +5,13 @@
 // non-sensitive device state.
 //
 // Secrets (refresh token, cached access token and its expiry) are stored in
-// the operating system's credential store via github.com/99designs/keyring
-// (macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet).
-// When no system keychain is available, keyring automatically falls back to
-// its own passphrase-encrypted file backend.
+// the operating system's credential store via github.com/99designs/keyring:
+// macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet,
+// or the `pass` password store. keyring's own encrypted-file backend is
+// deliberately excluded from this list: it isn't a real system keychain, and
+// its Remove behavior doesn't match keyring.ErrKeyNotFound (see
+// keyringSecrets.Delete). If none of the allowed backends are available,
+// New returns an error rather than silently falling back to a file.
 //
 // When --insecure-storage is passed explicitly, the system keychain is
 // bypassed entirely in favor of a plain (unencrypted), owner-only (0600)
@@ -50,6 +53,21 @@ const stateFileName = "state.json"
 // file used to store credentials when --insecure-storage bypasses the
 // system keychain.
 const insecureCredentialsFileName = "credentials.json"
+
+// systemBackends is the set of keyring backends considered real system
+// credential stores. Notably excludes keyring.FileBackend: it isn't backed
+// by a real system keychain, and its Remove behavior on a missing key
+// doesn't match keyring.ErrKeyNotFound (see keyringSecrets.Delete). Explicit
+// file-based storage is only available via --insecure-storage
+// (plainFileSecrets), never as an automatic fallback.
+var systemBackends = []keyring.BackendType{
+	keyring.SecretServiceBackend,
+	keyring.KeychainBackend,
+	keyring.KeyCtlBackend,
+	keyring.KWalletBackend,
+	keyring.WinCredBackend,
+	keyring.PassBackend,
+}
 
 // Credentials holds the secrets needed to authenticate with the LFX
 // platform: the long-lived Auth0 refresh token, and an optional cached
@@ -138,16 +156,12 @@ func New(opts Options) (Store, error) {
 		}
 	} else {
 		kr, err := keyring.Open(keyring.Config{
-			ServiceName: serviceName,
-			// Encrypted-file fallback used automatically by keyring when no
-			// system keychain is available; the file is protected by a
-			// passphrase collected via a terminal prompt.
-			FileDir:                  filepath.Join(stateDir, "credentials"),
-			FilePasswordFunc:         keyring.TerminalPrompt,
+			ServiceName:              serviceName,
+			AllowedBackends:          systemBackends,
 			KeychainTrustApplication: true,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("credstore: open keyring: %w", err)
+			return nil, fmt.Errorf("credstore: open keyring (use --insecure-storage as a fallback): %w", err)
 		}
 		secrets = &keyringSecrets{keyring: kr}
 	}
@@ -156,11 +170,14 @@ func New(opts Options) (Store, error) {
 }
 
 // resolveStateDir determines the directory used for non-secret device state
-// and the file-backend fallback, creating it if necessary.
+// and the insecure-storage credentials file, creating it if necessary.
 func resolveStateDir(override string) (string, error) {
 	dir := override
 	if dir == "" {
-		if xdgState := os.Getenv("XDG_STATE_HOME"); xdgState != "" {
+		// XDG Base Directory Specification requires $XDG_STATE_HOME to be an
+		// absolute path; per spec, relative values (and thus the variable)
+		// must be ignored, falling back to the documented default.
+		if xdgState := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(xdgState) {
 			dir = filepath.Join(xdgState, "lfx-cli")
 		} else {
 			home, err := os.UserHomeDir()
@@ -228,9 +245,8 @@ func (s *store) LoadDeviceState() (DeviceState, error) {
 	return state, nil
 }
 
-// keyringSecrets is a secretsBackend that stores Credentials in the system
-// keychain via keyring.Keyring, falling back to keyring's own
-// passphrase-encrypted file backend when no system keychain is available.
+// keyringSecrets is a secretsBackend that stores Credentials in a real
+// system credential store via keyring.Keyring (see systemBackends).
 type keyringSecrets struct {
 	keyring keyring.Keyring
 }
@@ -273,7 +289,11 @@ func (k *keyringSecrets) Load() (Credentials, error) {
 
 func (k *keyringSecrets) Delete() error {
 	err := k.keyring.Remove(credentialsKey)
-	if err != nil && !errors.Is(err, keyring.ErrKeyNotFound) {
+	// Most backends return keyring.ErrKeyNotFound for a missing key, but
+	// some (e.g. the pass backend, which shells out to files on disk) may
+	// instead surface an os.ErrNotExist-wrapping error; treat both as a
+	// successful no-op per the Store.DeleteCredentials contract.
+	if err != nil && !errors.Is(err, keyring.ErrKeyNotFound) && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("credstore: delete credentials: %w", err)
 	}
 
