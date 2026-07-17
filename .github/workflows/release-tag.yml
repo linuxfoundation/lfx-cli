@@ -100,8 +100,13 @@ jobs:
 
           tag="${GITHUB_REF_NAME}"
           gh release upload "${tag}" lfx-cli_darwin_amd64.tar.gz lfx-cli_darwin_arm64.tar.gz \
-            --repo "${GITHUB_REPOSITORY}"
+            --repo "${GITHUB_REPOSITORY}" --clobber
 
           gh release download "${tag}" --repo "${GITHUB_REPOSITORY}" --pattern checksums.txt --output checksums.txt
+          # Filter out any darwin lines already present (e.g. from a prior,
+          # partially-failed run of this job) before appending, so reruns
+          # don't duplicate entries in checksums.txt.
+          grep -v -F -f checksums-darwin.txt checksums.txt > checksums-filtered.txt || true
+          mv checksums-filtered.txt checksums.txt
           cat checksums-darwin.txt >> checksums.txt
           gh release upload "${tag}" checksums.txt --repo "${GITHUB_REPOSITORY}" --clobber
