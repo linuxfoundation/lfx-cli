@@ -211,5 +211,7 @@ release binaries may be missing even though the GitHub Release exists.
    the established pattern
 2. **Package Comments**: Every new `*.go` file must include the same
    `// Package <name> ...` doc comment as the rest of its package
-3. **Code Quality**: Run `make check` before commits
-4. **Documentation**: Update README.md for user-facing changes
+3. **Dependencies**: Run `go get -u ./... && go mod tidy` before every PR to
+   keep dependencies current
+4. **Code Quality**: Run `make check` before commits
+5. **Documentation**: Update README.md for user-facing changes
