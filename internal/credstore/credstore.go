@@ -55,15 +55,19 @@ const stateFileName = "state.json"
 const insecureCredentialsFileName = "credentials.json"
 
 // systemBackends is the set of keyring backends considered real system
-// credential stores. Notably excludes keyring.FileBackend: it isn't backed
-// by a real system keychain, and its Remove behavior on a missing key
-// doesn't match keyring.ErrKeyNotFound (see keyringSecrets.Delete). Explicit
-// file-based storage is only available via --insecure-storage
-// (plainFileSecrets), never as an automatic fallback.
+// credential stores. Notably excludes:
+//   - keyring.FileBackend: it isn't backed by a real system keychain, and
+//     its Remove behavior on a missing key doesn't match
+//     keyring.ErrKeyNotFound (see keyringSecrets.Delete). Explicit
+//     file-based storage is only available via --insecure-storage
+//     (plainFileSecrets), never as an automatic fallback.
+//   - keyring.KeyCtlBackend: its opener requires a non-empty Config.KeyCtlScope
+//     ("user", "session", "process", or "thread"); with the zero value we
+//     leave it at, Open always fails to open this backend and silently
+//     skips it, so including it here would be a no-op.
 var systemBackends = []keyring.BackendType{
 	keyring.SecretServiceBackend,
 	keyring.KeychainBackend,
-	keyring.KeyCtlBackend,
 	keyring.KWalletBackend,
 	keyring.WinCredBackend,
 	keyring.PassBackend,
@@ -95,8 +99,8 @@ type DeviceState struct {
 
 // Store is the credential storage abstraction used by the auth commands.
 type Store interface {
-	// SaveCredentials persists secrets to the system keychain (or the file
-	// fallback).
+	// SaveCredentials persists secrets to the system keychain (or, with
+	// Options.Insecure, the plain-file backend).
 	SaveCredentials(creds Credentials) error
 	// LoadCredentials returns the persisted secrets, or ErrNotFound if none
 	// have been saved.
@@ -114,10 +118,10 @@ type Store interface {
 
 // Options configures a Store returned by New.
 type Options struct {
-	// Insecure bypasses the system keychain (and its encrypted-file
-	// fallback) in favor of a plain, owner-only (0600) JSON file. Intended
-	// for headless/CI use where a passphrase prompt is unacceptable.
-	// Corresponds to the CLI's --insecure-storage flag.
+	// Insecure bypasses the system keychain in favor of a plain, owner-only
+	// (0600) JSON file. Intended for headless/CI use where a passphrase
+	// prompt is unacceptable. Corresponds to the CLI's --insecure-storage
+	// flag.
 	Insecure bool
 
 	// StateDir overrides the computed state directory. Intended for tests;
@@ -156,7 +160,12 @@ func New(opts Options) (Store, error) {
 		}
 	} else {
 		kr, err := keyring.Open(keyring.Config{
-			ServiceName:              serviceName,
+			ServiceName: serviceName,
+			// The pass backend namespaces entries via PassPrefix, not
+			// ServiceName; without it, our generic credentialsKey would be
+			// stored as a top-level "credentials" entry in the user's
+			// password store, risking collisions with unrelated tools.
+			PassPrefix:               serviceName,
 			AllowedBackends:          systemBackends,
 			KeychainTrustApplication: true,
 		})
@@ -195,6 +204,30 @@ func resolveStateDir(override string) (string, error) {
 	return dir, nil
 }
 
+// writeOwnerOnlyFile writes data to path as an owner-only (0600) file.
+// Unlike a bare os.WriteFile, this guarantees the 0600 mode is enforced even
+// if a file already exists at path with looser permissions: os.WriteFile
+// only applies its mode argument when creating a new file, silently
+// preserving the mode of one that already exists.
+func writeOwnerOnlyFile(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return err
+	}
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+
+	return f.Close()
+}
+
 // SaveCredentials implements Store.
 func (s *store) SaveCredentials(creds Credentials) error {
 	return s.secrets.Save(creds)
@@ -218,7 +251,7 @@ func (s *store) SaveDeviceState(state DeviceState) error {
 	}
 
 	path := filepath.Join(s.stateDir, stateFileName)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := writeOwnerOnlyFile(path, data); err != nil {
 		return fmt.Errorf("credstore: write device state: %w", err)
 	}
 
@@ -315,7 +348,7 @@ func (p *plainFileSecrets) Save(creds Credentials) error {
 		return fmt.Errorf("credstore: marshal credentials: %w", err)
 	}
 
-	if err := os.WriteFile(p.path, data, 0o600); err != nil {
+	if err := writeOwnerOnlyFile(p.path, data); err != nil {
 		return fmt.Errorf("credstore: write credentials: %w", err)
 	}
 
