@@ -20,6 +20,11 @@ CLI (`lfx auth login` → `lfx auth token`).
   for LLM/agent-friendly Markdown reference docs (`lfx docs`)
 - **Release automation**: [GoReleaser](https://goreleaser.com/) for
   multi-arch binary builds published to GitHub Releases
+- **Output**: user-facing command output uses plain `fmt.Println`/
+  `fmt.Fprintln`, not `log/slog`. This is intentional: unlike the
+  JSON-structured `slog` logging convention used by LFX's long-running
+  services, `lfx` is an interactive CLI with no log aggregator consuming
+  its output.
 
 ## Architecture Overview
 
