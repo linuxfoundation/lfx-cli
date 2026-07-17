@@ -8,6 +8,10 @@ before:
     - go mod tidy
 
 builds:
+  # darwin is excluded here: KeychainBackend needs the "darwin && cgo" build
+  # tag, which a CGO_ENABLED=0 cross-compile from Linux can't satisfy.
+  # Darwin binaries are built natively by the darwin job in
+  # release-tag.yml and uploaded as additional release assets.
   - id: lfx
     main: ./cmd/lfx
     binary: lfx
@@ -15,7 +19,6 @@ builds:
       - CGO_ENABLED=0
     goos:
       - linux
-      - darwin
       - windows
     goarch:
       - amd64

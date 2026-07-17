@@ -4,6 +4,7 @@
   "words": [
     "aquasecurity",
     "artipacked",
+    "binpath",
     "cimd",
     "clidocs",
     "coverprofile",
@@ -25,6 +26,8 @@
     "linuxfoundation",
     "memprof",
     "mgechev",
+    "mktemp",
+    "pipefail",
     "techdocs",
     "urfave",
     "zizmor"

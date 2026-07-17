@@ -43,3 +43,65 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  darwin:
+    name: Darwin (native, cgo-enabled)
+    # Built natively on macos-latest so KeychainBackend (requires
+    # "darwin && cgo") is actually compiled in.
+    needs: goreleaser
+    runs-on: macos-latest
+
+    permissions:
+      contents: write
+
+    env:
+      CGO_ENABLED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5.6.0
+        with:
+          go-version-file: go.mod
+          # Disable caching: publishes runtime artifacts on tag push.
+          cache: false
+
+      - name: Build and archive darwin binaries
+        run: |
+          set -euo pipefail
+
+          version="${GITHUB_REF_NAME#v}"
+          name="lfx-cli"
+          workdir="$(mktemp -d)"
+
+          for arch in amd64 arm64; do
+            binpath="${workdir}/lfx"
+            GOOS=darwin GOARCH="${arch}" go build \
+              -ldflags="-s -w -X main.version=${version}" \
+              -o "${binpath}" ./cmd/lfx
+
+            archive="${name}_darwin_${arch}.tar.gz"
+            tar -czf "${archive}" -C "${workdir}" lfx -C "${GITHUB_WORKSPACE}" LICENSE LICENSE-docs README.md
+            rm -f "${binpath}"
+
+            shasum -a 256 "${archive}" >> checksums-darwin.txt
+          done
+
+      - name: Upload darwin archives and merge checksums
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          gh release upload "${tag}" lfx-cli_darwin_amd64.tar.gz lfx-cli_darwin_arm64.tar.gz \
+            --repo "${GITHUB_REPOSITORY}"
+
+          gh release download "${tag}" --repo "${GITHUB_REPOSITORY}" --pattern checksums.txt --output checksums.txt
+          cat checksums-darwin.txt >> checksums.txt
+          gh release upload "${tag}" checksums.txt --repo "${GITHUB_REPOSITORY}" --clobber

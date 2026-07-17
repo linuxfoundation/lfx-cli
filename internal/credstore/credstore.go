@@ -14,10 +14,13 @@
 // New returns an error rather than silently falling back to a file.
 //
 // When --insecure-storage is passed explicitly, the system keychain is
-// bypassed entirely in favor of a plain (unencrypted), owner-only (0600)
-// JSON file under the state directory. This is intended for headless/CI use
-// where no passphrase prompt is acceptable, and is deliberately less secure
-// than the keyring-backed storage.
+// bypassed entirely in favor of a plain (unencrypted), owner-only (0600 on
+// POSIX; on Windows, Go's Chmod maps 0600 to the read-only attribute
+// instead of a real ACL, so confidentiality there relies on the file's
+// inherited directory permissions) JSON file under the state directory.
+// This is intended for headless/CI use where no passphrase prompt is
+// acceptable, and is deliberately less secure than the keyring-backed
+// storage.
 //
 // Non-sensitive state (device ID, IdP domain used at login) is always stored
 // as plain JSON under the XDG state directory (~/.local/state/lfx-cli/ by
@@ -119,8 +122,9 @@ type Store interface {
 // Options configures a Store returned by New.
 type Options struct {
 	// Insecure bypasses the system keychain in favor of a plain, owner-only
-	// (0600) JSON file. Intended for headless/CI use where a passphrase
-	// prompt is unacceptable. Corresponds to the CLI's --insecure-storage
+	// (0600; see writeOwnerOnlyFile for the Windows caveat) JSON file.
+	// Intended for headless/CI use where a passphrase prompt is
+	// unacceptable. Corresponds to the CLI's --insecure-storage
 	// flag.
 	Insecure bool
 
@@ -204,28 +208,49 @@ func resolveStateDir(override string) (string, error) {
 	return dir, nil
 }
 
-// writeOwnerOnlyFile writes data to path as an owner-only (0600) file.
-// Unlike a bare os.WriteFile, this guarantees the 0600 mode is enforced even
-// if a file already exists at path with looser permissions: os.WriteFile
-// only applies its mode argument when creating a new file, silently
-// preserving the mode of one that already exists.
-func writeOwnerOnlyFile(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+// writeOwnerOnlyFile writes data to path as an owner-only (0600) file,
+// atomically: it writes to a temporary file in the same directory first,
+// then renames it over path only after the write fully succeeds. This
+// avoids truncating (and potentially losing) an existing valid file if the
+// write is interrupted partway through.
+//
+// On Windows, 0600 does not enforce owner-only access: Go maps it to the
+// read-only attribute rather than a real ACL, so confidentiality there
+// depends on the file's inherited directory permissions.
+func writeOwnerOnlyFile(path string, data []byte) (err error) {
+	dir := filepath.Dir(path)
+
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
 		return err
 	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
+	if err = tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
 		return err
 	}
 
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
+	if _, err = tmp.Write(data); err != nil {
+		_ = tmp.Close()
 		return err
 	}
 
-	return f.Close()
+	if err = tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tmpPath, path)
 }
 
 // SaveCredentials implements Store.
