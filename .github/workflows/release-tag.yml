@@ -85,7 +85,13 @@ jobs:
               zip -X -j "${archive}" "${binpath}" LICENSE LICENSE-docs README.md
             else
               archive="${name}_${goos}_${goarch}.tar.gz"
-              tar -czf "${archive}" -C "${workdir}" "${binname}" -C "${GITHUB_WORKSPACE}" LICENSE LICENSE-docs README.md
+              # Pipe through gzip -n rather than tar's built-in -z: bsdtar's
+              # gzip writer embeds the current wall-clock time in the gzip
+              # header regardless of the archived files' mtimes, which
+              # would otherwise make the archive bytes differ on every run
+              # despite the pinned mtimes above.
+              tar -cf - -C "${workdir}" "${binname}" -C "${GITHUB_WORKSPACE}" LICENSE LICENSE-docs README.md \
+                | gzip -n > "${archive}"
             fi
 
             shasum -a 256 "${archive}" >> checksums.txt
