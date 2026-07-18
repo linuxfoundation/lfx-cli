@@ -1,7 +1,7 @@
 # Copyright The Linux Foundation and each contributor to LFX.
 # SPDX-License-Identifier: MIT
 
-.PHONY: all build clean check fmt vet lint revive goreleaser-check test test-coverage run deps install-tools megalinter help
+.PHONY: all build clean check fmt vet lint revive test test-coverage run deps install-tools megalinter help
 
 # Build variables
 BINARY_NAME=lfx
@@ -41,7 +41,7 @@ clean:
 # the read-only checks run; those are safe to parallelize with each other.
 check:
 	$(MAKE) fmt
-	$(MAKE) vet lint revive goreleaser-check
+	$(MAKE) vet lint revive
 
 # Format Go code
 fmt:
@@ -71,15 +71,6 @@ revive:
 		echo "revive not installed, skipping..."; \
 	fi
 
-# Validate the GoReleaser config (if available)
-goreleaser-check:
-	@echo "Validating .goreleaser.yaml..."
-	@if command -v goreleaser >/dev/null 2>&1; then \
-		goreleaser check; \
-	else \
-		echo "goreleaser not installed, skipping..."; \
-	fi
-
 # Run tests
 test:
 	@echo "Running tests..."
@@ -106,12 +97,11 @@ deps:
 install-tools:
 	@echo "Installing development tools..."
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-	go install github.com/goreleaser/goreleaser/v2@latest
 	go install github.com/mgechev/revive@latest
 	@gobin="$$(go env GOPATH)/bin"; \
 	case ":$$PATH:" in \
 		*":$$gobin:"*) ;; \
-		*) echo "Warning: $$gobin is not in your PATH; installed tools (golangci-lint, goreleaser, revive) won't be found. Add it to your PATH, e.g.: export PATH=\"$$PATH:$$gobin\"" ;; \
+		*) echo "Warning: $$gobin is not in your PATH; installed tools (golangci-lint, revive) won't be found. Add it to your PATH, e.g.: export PATH=\"$$PATH:$$gobin\"" ;; \
 	esac
 
 # Run MegaLinter locally via Docker (matches CI Go flavor at v9.6.0).
@@ -131,7 +121,6 @@ help:
 	@echo "  vet              - Run go vet"
 	@echo "  lint             - Run golangci-lint"
 	@echo "  revive           - Run revive"
-	@echo "  goreleaser-check - Validate .goreleaser.yaml"
 	@echo "  test             - Run tests"
 	@echo "  test-coverage    - Run tests with coverage report"
 	@echo "  run              - Build and run the CLI (pass args via ARGS=...)"

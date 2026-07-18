@@ -4,6 +4,7 @@
   "words": [
     "aquasecurity",
     "artipacked",
+    "binname",
     "binpath",
     "cimd",
     "clidocs",
@@ -17,8 +18,8 @@
     "gobin",
     "gofmt",
     "golangci",
+    "goos",
     "gopath",
-    "goreleaser",
     "kics",
     "ldflags",
     "lfx",
@@ -29,6 +30,7 @@
     "mktemp",
     "pipefail",
     "techdocs",
+    "trimpath",
     "urfave",
     "zizmor"
   ],
