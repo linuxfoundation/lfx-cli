@@ -49,8 +49,9 @@ Credential storage (system keychain via `99designs/keyring`) and the Auth0
 CIMD client are tracked separately.
 
 **No container build**: this project produces binary artifacts only,
-distributed via GitHub Releases and `go install`. There is no Dockerfile,
-Helm chart, or container image pipeline.
+distributed via GitHub Releases, the `install.sh` curl-style installer
+hosted on `gh-pages`, and `go install`. There is no Dockerfile, Helm
+chart, or container image pipeline.
 
 ## Development Workflow
 
@@ -157,12 +158,30 @@ between files in the same package.
 
 The hidden `lfx docs` command generates Markdown reference documentation
 for all commands via `cli-docs.ToMarkdown()`, intended for local agent use
-and future publishing to the `gh-pages` branch:
+and for publishing to the `gh-pages` branch:
 
 ```bash
 lfx docs                    # Print to stdout
 lfx docs --output ./docs     # Write to ./docs/cli.md
 ```
+
+## gh-pages Branch
+
+The `gh-pages` branch is a static asset branch (not source code) served at
+`https://linuxfoundation.github.io/lfx-cli/`. It holds:
+
+- `install.sh` -- the curl-style installer referenced in the README
+- `client-metadata.json` -- the CIMD (Client ID Metadata Document) for the
+  LFX CLI's Auth0 Device Code client; this URL *is* the client_id (see
+  `auth0-terraform`'s `clients_cimd.tf` for the corresponding client
+  definition)
+- `docs/cli.md` -- generated CLI reference docs, republished on every
+  tagged release by the **Publish Tagged Release** workflow's
+  `publish-docs` job (see `.github/workflows/release-tag.yml`)
+
+Only edit `install.sh` or `client-metadata.json` directly on `gh-pages`
+when the install flow or CIMD metadata changes; `docs/cli.md` is
+regenerated automatically and should not be hand-edited.
 
 ## Release Process
 

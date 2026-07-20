@@ -8,11 +8,20 @@ token`).
 ## Installation
 
 ```bash
-go install github.com/linuxfoundation/lfx-cli/cmd/lfx@latest
+curl -sSL https://linuxfoundation.github.io/lfx-cli/install.sh | sh
 ```
 
-Prebuilt binaries for Linux, macOS, and Windows are also published on the
-[Releases](https://github.com/linuxfoundation/lfx-cli/releases) page.
+This downloads the correct prebuilt binary for your OS/architecture from the
+[Releases](https://github.com/linuxfoundation/lfx-cli/releases) page,
+verifies its checksum, and installs it to `/usr/local/bin` (or `~/.local/bin`
+if that's not writable). Set `LFX_CLI_VERSION` to pin a specific release, or
+`LFX_CLI_INSTALL_DIR` to override the install location.
+
+Alternatively, install with Go:
+
+```bash
+go install github.com/linuxfoundation/lfx-cli/cmd/lfx@latest
+```
 
 ## Usage
 
