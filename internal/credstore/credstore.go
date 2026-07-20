@@ -208,49 +208,43 @@ func resolveStateDir(override string) (string, error) {
 	return dir, nil
 }
 
-// writeOwnerOnlyFile writes data to path as an owner-only (0600) file,
-// atomically: it writes to a temporary file in the same directory first,
-// then renames it over path only after the write fully succeeds. This
-// avoids truncating (and potentially losing) an existing valid file if the
-// write is interrupted partway through.
+// writeOwnerOnlyFile writes data to path in place, creating it with
+// owner-only (0600) permissions if it doesn't already exist. path is
+// exclusively created and managed by this CLI, so there's no other writer
+// to race against and no need for a temp-file-plus-rename swap: that would
+// only introduce problems here, since os.Rename isn't guaranteed atomic on
+// Windows, and on SELinux systems a renamed-in file can pick up the temp
+// file's security context instead of the destination's. The accepted
+// tradeoff is that a crash or write error between truncation and the write
+// completing can leave the file empty or partially written, requiring the
+// user to re-authenticate; for a local single-writer state file, that's a
+// simpler and more predictable failure mode than the complexity a
+// crash-safe rename would add.
+//
+// The 0600 mode is requested only at creation time (per os.OpenFile
+// semantics); if path already exists with looser permissions (e.g. a user
+// deliberately loosened them), this does not tighten them back. It's the
+// user's file to manage once it exists.
 //
 // On Windows, 0600 does not enforce owner-only access: Go maps it to the
 // read-only attribute rather than a real ACL, so confidentiality there
 // depends on the file's inherited directory permissions.
 func writeOwnerOnlyFile(path string, data []byte) (err error) {
-	dir := filepath.Dir(path)
-
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	tmpPath := tmp.Name()
 	defer func() {
-		if err != nil {
-			_ = os.Remove(tmpPath)
+		if closeErr := f.Close(); err == nil {
+			err = closeErr
 		}
 	}()
 
-	if err = tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
+	if _, err = f.Write(data); err != nil {
 		return err
 	}
 
-	if _, err = tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-
-	if err = tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-
-	if err = tmp.Close(); err != nil {
-		return err
-	}
-
-	return os.Rename(tmpPath, path)
+	return f.Sync()
 }
 
 // SaveCredentials implements Store.
