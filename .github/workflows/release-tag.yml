@@ -112,3 +112,49 @@ jobs:
             lfx-cli_darwin_arm64.tar.gz \
             checksums.txt \
             --repo "${GITHUB_REPOSITORY}" --clobber
+
+  publish-docs:
+    name: Publish CLI docs to gh-pages
+    needs: release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Generate CLI reference docs
+        run: go run ./cmd/lfx docs --output ./docs-out
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          ref: gh-pages
+          path: gh-pages
+          persist-credentials: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish docs
+        run: |
+          mkdir -p gh-pages/docs
+          cp docs-out/cli.md gh-pages/docs/cli.md
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- docs/cli.md; then
+            echo "No changes to docs/cli.md; skipping commit."
+            exit 0
+          fi
+          git add docs/cli.md
+          git commit -s -m "docs: publish CLI reference for ${GITHUB_REF_NAME}"
+          git push origin gh-pages
