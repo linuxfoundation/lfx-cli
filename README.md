@@ -42,6 +42,20 @@ lfx auth logout
 lfx api <method> <path>
 ```
 
+Credentials (refresh token, cached access token) are stored in your
+operating system's credential store by default (macOS Keychain, Windows
+Credential Manager, Linux Secret Service/KWallet/`pass`). Pass
+`--insecure-storage` to any `auth` subcommand to instead store credentials
+in a plain, unencrypted, owner-only file, at the cost of weaker protection
+for the stored tokens. On Windows, this owner-only mode relies on inherited
+directory permissions rather than a real ACL, since Go's `Chmod(0600)` maps
+to the read-only attribute there rather than restricting access to the
+current user.
+
+```bash
+lfx auth login --insecure-storage
+```
+
 Run `lfx --help` or `lfx <command> --help` for full details on any command.
 
 > **Note:** This project is under active development. Authentication and API

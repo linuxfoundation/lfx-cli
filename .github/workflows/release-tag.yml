@@ -11,9 +11,15 @@ name: Publish Tagged Release
 permissions: {}
 
 jobs:
-  goreleaser:
-    name: GoReleaser
-    runs-on: ubuntu-latest
+  release:
+    name: Build and upload release artifacts
+    runs-on: macos-latest
+    # Runs on macos-latest (rather than ubuntu-latest) so darwin binaries
+    # can be built natively with CGO_ENABLED=1: keyring's KeychainBackend
+    # is compiled only under the "darwin && cgo" build tag, which a
+    # cross-compiled, CGO_ENABLED=0 darwin build can't satisfy. linux and
+    # windows binaries are still pure cross-compiles (CGO_ENABLED=0, no
+    # cgo-only backends there), which works the same from any host OS.
 
     permissions:
       contents: write
@@ -34,19 +40,82 @@ jobs:
           # into a release build (zizmor cache-poisoning audit).
           cache: false
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a  # v6.4.0
-        with:
-          # Constrained to v2 (the action's documented default) so a
-          # future GoReleaser v3 release doesn't silently break old tags.
-          version: "~> v2"
-          args: release --clean
+      - name: Build and archive release binaries
+        run: |
+          set -euo pipefail
+
+          name="lfx-cli"
+          version="${GITHUB_REF_NAME#v}"
+          # Reproducible builds: pin every archived file's mtime to the
+          # commit timestamp (rather than build/checkout time), and strip
+          # build-path information from the binary. actions/checkout sets
+          # file mtimes to checkout time, not the original commit time (git
+          # doesn't track per-file mtimes at all), so LICENSE/README need
+          # pinning here too, not just the binary.
+          # https://reproducible-builds.org/docs/archives/
+          commit_epoch="$(git log -1 --format=%ct)"
+          mtime="$(date -u -r "${commit_epoch}" +%Y%m%d%H%M.%S)"
+          touch -t "${mtime}" LICENSE LICENSE-docs README.md
+
+          # goos, goarch, cgo_enabled
+          targets=(
+            "linux amd64 0"
+            "linux arm64 0"
+            "windows amd64 0"
+            "darwin amd64 1"
+            "darwin arm64 1"
+          )
+
+          for target in "${targets[@]}"; do
+            read -r goos goarch cgo_enabled <<< "${target}"
+
+            workdir="$(mktemp -d)"
+            binname="lfx"
+            [ "${goos}" = "windows" ] && binname="lfx.exe"
+            binpath="${workdir}/${binname}"
+
+            GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED="${cgo_enabled}" go build \
+              -trimpath \
+              -ldflags="-s -w -X main.version=${version}" \
+              -o "${binpath}" ./cmd/lfx
+            touch -t "${mtime}" "${binpath}"
+
+            if [ "${goos}" = "windows" ]; then
+              archive="${name}_${goos}_${goarch}.zip"
+              zip -X -j "${archive}" "${binpath}" LICENSE LICENSE-docs README.md
+            else
+              archive="${name}_${goos}_${goarch}.tar.gz"
+              # Pipe through gzip -n rather than tar's built-in -z: bsdtar's
+              # gzip writer embeds the current wall-clock time in the gzip
+              # header regardless of the archived files' mtimes, which
+              # would otherwise make the archive bytes differ on every run
+              # despite the pinned mtimes above.
+              tar -cf - -C "${workdir}" "${binname}" -C "${GITHUB_WORKSPACE}" LICENSE LICENSE-docs README.md \
+                | gzip -n > "${archive}"
+            fi
+
+            shasum -a 256 "${archive}" >> checksums.txt
+            rm -rf "${workdir}"
+          done
+
+      - name: Upload release artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          gh release upload "${GITHUB_REF_NAME}" \
+            lfx-cli_linux_amd64.tar.gz \
+            lfx-cli_linux_arm64.tar.gz \
+            lfx-cli_windows_amd64.zip \
+            lfx-cli_darwin_amd64.tar.gz \
+            lfx-cli_darwin_arm64.tar.gz \
+            checksums.txt \
+            --repo "${GITHUB_REPOSITORY}" --clobber
 
   publish-docs:
     name: Publish CLI docs to gh-pages
-    needs: goreleaser
+    needs: release
     runs-on: ubuntu-latest
 
     permissions:

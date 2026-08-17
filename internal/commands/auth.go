@@ -11,15 +11,32 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// insecureStorageFlagName is the auth command group's flag controlling
+// whether credentials bypass the system keychain in favor of a plain,
+// unencrypted file.
+const insecureStorageFlagName = "insecure-storage"
+
 // NewAuthCommand builds the `lfx auth` command group with its subcommands.
 //
-// All subcommands are currently stubs; real implementations land in
-// LFXV2-2513 (Auth0 client), LFXV2-2514 (keychain storage), LFXV2-2515
-// (login flow), and LFXV2-2516 (token command).
+// The --insecure-storage flag is shared by all subcommands and controls
+// whether credentials bypass the system keychain in favor of credstore's
+// plain (unencrypted) file fallback, e.g. for headless/CI use.
+//
+// The login, token, status, and logout actions are currently stubs; real
+// implementations land in LFXV2-2515 (login flow) and LFXV2-2516 (token
+// command), at which point they'll build a credstore.Store via
+// credstore.New(credstore.Options{Insecure:
+// cmd.Bool(insecureStorageFlagName)}).
 func NewAuthCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "auth",
 		Usage: "Manage authentication with the LFX platform",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  insecureStorageFlagName,
+				Usage: "Store credentials in a plain (unencrypted) file instead of the system keychain",
+			},
+		},
 		Commands: []*cli.Command{
 			newAuthLoginCommand(),
 			newAuthTokenCommand(),

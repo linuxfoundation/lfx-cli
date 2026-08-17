@@ -18,8 +18,15 @@ CLI (`lfx auth login` → `lfx auth token`).
   subcommand routing
 - **Docs generation**: [`urfave/cli-docs/v3`](https://github.com/urfave/cli-docs)
   for LLM/agent-friendly Markdown reference docs (`lfx docs`)
-- **Release automation**: [GoReleaser](https://goreleaser.com/) for
-  multi-arch binary builds published to GitHub Releases
+- **Release automation**: a single `release-tag.yml` GitHub Actions job
+  (running on `macos-latest`) cross-compiles linux/windows binaries and
+  natively builds cgo-enabled darwin binaries, then uploads all archives
+  to the GitHub Release
+- **Output**: user-facing command output uses plain `fmt.Println`/
+  `fmt.Fprintln`, not `log/slog`. This is intentional: unlike the
+  JSON-structured `slog` logging convention used by LFX's long-running
+  services, `lfx` is an interactive CLI with no log aggregator consuming
+  its output.
 
 ## Architecture Overview
 
@@ -29,7 +36,8 @@ lfx-cli/
 │   └── lfx/                # Main application entry point
 ├── internal/
 │   └── commands/           # CLI subcommand implementations
-├── .goreleaser.yaml         # Multi-arch release build configuration
+├── .github/workflows/
+│   └── release-tag.yml      # Multi-arch release build/upload
 ├── go.mod                   # Go module definition
 ├── Makefile                 # Build automation
 ├── README.md                 # User documentation
@@ -85,7 +93,6 @@ make fmt               # Format code
 make vet               # Run go vet
 make lint              # Run golangci-lint (if installed)
 make revive            # Run revive (if installed)
-make goreleaser-check  # Validate .goreleaser.yaml (if goreleaser installed)
 make check             # Run all of the above
 ```
 
@@ -202,7 +209,7 @@ explicitly instructed.
 Do **not** create or push git tags manually. Instead, use the GitHub
 Releases UI (or `gh` CLI) to create a release; GitHub will create the tag
 automatically, and the **Publish Tagged Release** GitHub Actions workflow
-will run GoReleaser to build and publish multi-arch binaries.
+will build and upload multi-arch binaries to it.
 
 ```bash
 # Determine the next version by inspecting the latest tag.
@@ -225,5 +232,7 @@ release binaries may be missing even though the GitHub Release exists.
    the established pattern
 2. **Package Comments**: Every new `*.go` file must include the same
    `// Package <name> ...` doc comment as the rest of its package
-3. **Code Quality**: Run `make check` before commits
-4. **Documentation**: Update README.md for user-facing changes
+3. **Dependencies**: Run `go get -u ./... && go mod tidy` before every PR to
+   keep dependencies current
+4. **Code Quality**: Run `make check` before commits
+5. **Documentation**: Update README.md for user-facing changes
