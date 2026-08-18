@@ -8,6 +8,7 @@ require (
 	github.com/99designs/keyring v1.2.2
 	github.com/urfave/cli-docs/v3 v3.1.0
 	github.com/urfave/cli/v3 v3.10.1
+	golang.org/x/oauth2 v0.36.0
 )
 
 require (

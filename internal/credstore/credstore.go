@@ -22,7 +22,8 @@
 // acceptable, and is deliberately less secure than the keyring-backed
 // storage.
 //
-// Non-sensitive state (device ID, IdP domain used at login) is always stored
+// Non-sensitive state (environment, IdP domain, and audience used at login)
+// is always stored
 // as plain JSON under the XDG state directory (~/.local/state/lfx-cli/ by
 // default), per XDG Base Directory conventions for mutable runtime state.
 package credstore
@@ -94,10 +95,30 @@ func (c Credentials) ValidAccessToken() bool {
 
 // DeviceState holds non-sensitive information persisted between CLI
 // invocations so that commands like `lfx auth token` don't need to
-// re-specify the IdP domain used at login.
+// re-specify the environment, IdP domain, or audience used at login.
+//
+// Note: this deliberately does not include a persistent "device ID". One
+// was considered (see LFXV2-2515/LFXV2-2509 discussion) on the assumption
+// that `gh` uses one as part of its OAuth device flow, but `gh`'s
+// `~/.local/state/gh/device-id` is actually just an anonymous telemetry
+// identifier (see `internal/telemetry.getOrCreateDeviceID` in
+// github.com/cli/cli) -- it plays no role in the OAuth device
+// authorization grant and isn't sent to GitHub's API. Since the LFX CLI
+// has no telemetry pipeline, and Auth0's device flow has no concept of a
+// device ID at all, there's nothing here for one to do. Revisit if/when
+// opt-in CLI telemetry is added.
 type DeviceState struct {
-	DeviceID  string `json:"device_id"`
 	IDPDomain string `json:"idp_domain,omitempty"`
+	// Environment is the `--env` value used at login (prod, staging, or
+	// development), determining which compiled-in client ID is used to
+	// refresh the access token.
+	Environment string `json:"environment,omitempty"`
+	// Audience is the `--audience` value used at login. Auth0's
+	// refresh_token grant automatically ties the refreshed access token
+	// to the audience it was originally issued for, so this isn't sent
+	// back on refresh; it's persisted purely for display in
+	// `lfx auth status`.
+	Audience string `json:"audience,omitempty"`
 }
 
 // Store is the credential storage abstraction used by the auth commands.
@@ -117,6 +138,9 @@ type Store interface {
 	// LoadDeviceState returns the persisted device state, or ErrNotFound if
 	// none has been saved.
 	LoadDeviceState() (DeviceState, error)
+	// DeleteDeviceState removes any persisted device state. It is a no-op
+	// if none exists.
+	DeleteDeviceState() error
 }
 
 // Options configures a Store returned by New.
@@ -295,6 +319,18 @@ func (s *store) LoadDeviceState() (DeviceState, error) {
 	}
 
 	return state, nil
+}
+
+// DeleteDeviceState implements Store.
+func (s *store) DeleteDeviceState() error {
+	path := filepath.Join(s.stateDir, stateFileName)
+
+	err := os.Remove(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("credstore: delete device state: %w", err)
+	}
+
+	return nil
 }
 
 // keyringSecrets is a secretsBackend that stores Credentials in a real
