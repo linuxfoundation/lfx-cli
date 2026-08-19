@@ -184,11 +184,12 @@ func (dc *DeviceCode) Poll() (*oauth2.Token, error) {
 	// code's Expiry and returns the bare context.DeadlineExceeded (not a
 	// *oauth2.RetrieveError) once that deadline passes, rather than
 	// waiting for the token endpoint to report "expired_token" itself.
-	// Since this Client never sets its own deadline on the context it
-	// passes in (see RequestDeviceCode), any DeadlineExceeded seen here
-	// can only come from that internal one, so it's safe to always treat
-	// it as ErrExpiredToken.
-	if errors.Is(err, context.DeadlineExceeded) {
+	// dc.ctx may also carry a caller-supplied deadline of its own (e.g. if
+	// RequestDeviceCode was called with one), so only treat
+	// DeadlineExceeded as an expired device code if dc.ctx itself isn't
+	// what expired -- otherwise this would misreport an unrelated caller
+	// timeout as ErrExpiredToken.
+	if errors.Is(err, context.DeadlineExceeded) && dc.ctx.Err() == nil {
 		return nil, ErrExpiredToken
 	}
 

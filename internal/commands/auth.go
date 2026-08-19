@@ -175,14 +175,21 @@ func loginWithDeviceCode(
 	}
 
 	fmt.Printf("First copy your one-time code: %s\n", dc.UserCode)
+	// VerificationURIComplete is optional per RFC 8628 §3.2; fall back to
+	// VerificationURI (always present) plus the user code if the IdP
+	// doesn't supply it.
+	verificationURI := dc.VerificationURIComplete
+	if verificationURI == "" {
+		verificationURI = dc.VerificationURI
+	}
 	if cmd.Bool(webFlagName) {
-		fmt.Printf("Opening %s in your browser...\n", dc.VerificationURIComplete)
-		if err := openBrowser(dc.VerificationURIComplete); err != nil {
+		fmt.Printf("Opening %s in your browser...\n", verificationURI)
+		if err := openBrowser(verificationURI); err != nil {
 			fmt.Printf("Couldn't open browser automatically: %v\n", err)
-			fmt.Printf("Please visit: %s\n", dc.VerificationURIComplete)
+			fmt.Printf("Please visit: %s\n", verificationURI)
 		}
 	} else {
-		fmt.Printf("Then visit: %s\n", dc.VerificationURIComplete)
+		fmt.Printf("Then visit: %s\n", verificationURI)
 	}
 	fmt.Println("Waiting for authentication...")
 
