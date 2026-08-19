@@ -140,16 +140,12 @@ func loginWithToken(store credstore.Store, env auth0.Environment, domain, audien
 		return errors.New("no refresh token provided on stdin")
 	}
 
-	if err := store.SaveCredentials(credstore.Credentials{RefreshToken: refreshToken}); err != nil {
-		return fmt.Errorf("save credentials: %w", err)
-	}
-	if err := store.SaveDeviceState(credstore.DeviceState{
-		IDPDomain:   domain,
-		Environment: string(env),
-		Audience:    audience,
-		Insecure:    insecure,
-	}); err != nil {
-		return fmt.Errorf("save device state: %w", err)
+	if err := persistLogin(
+		store,
+		credstore.Credentials{RefreshToken: refreshToken},
+		credstore.DeviceState{IDPDomain: domain, Environment: string(env), Audience: audience, Insecure: insecure},
+	); err != nil {
+		return err
 	}
 
 	fmt.Println("Logged in with a supplied refresh token.")
@@ -207,20 +203,16 @@ func loginWithDeviceCode(
 		return err
 	}
 
-	if err := store.SaveCredentials(credstore.Credentials{
-		RefreshToken:      token.RefreshToken,
-		AccessToken:       token.AccessToken,
-		AccessTokenExpiry: token.Expiry,
-	}); err != nil {
-		return fmt.Errorf("save credentials: %w", err)
-	}
-	if err := store.SaveDeviceState(credstore.DeviceState{
-		IDPDomain:   domain,
-		Environment: string(env),
-		Audience:    audience,
-		Insecure:    insecure,
-	}); err != nil {
-		return fmt.Errorf("save device state: %w", err)
+	if err := persistLogin(
+		store,
+		credstore.Credentials{
+			RefreshToken:      token.RefreshToken,
+			AccessToken:       token.AccessToken,
+			AccessTokenExpiry: token.Expiry,
+		},
+		credstore.DeviceState{IDPDomain: domain, Environment: string(env), Audience: audience, Insecure: insecure},
+	); err != nil {
+		return err
 	}
 
 	fmt.Println("Login successful.")
@@ -295,22 +287,50 @@ func insecureStorageUsageHint(insecure bool) string {
 	return "no --insecure-storage"
 }
 
+// persistLogin saves creds and state together, wrapping any failure with
+// context on which write failed. Note: the two writes are not atomic; if
+// SaveDeviceState fails after SaveCredentials succeeds, the caller is left
+// with new credentials paired with stale or missing environment metadata.
+func persistLogin(store credstore.Store, creds credstore.Credentials, state credstore.DeviceState) error {
+	if err := store.SaveCredentials(creds); err != nil {
+		return fmt.Errorf("save credentials: %w", err)
+	}
+	if err := store.SaveDeviceState(state); err != nil {
+		return fmt.Errorf("save device state: %w", err)
+	}
+	return nil
+}
+
+// loadStoredCredentials builds a credstore.Store for cmd and loads its
+// credentials, returning (creds, false, nil) when none are stored
+// (credstore.ErrNotFound) instead of treating that as an error, since
+// callers report "not logged in" differently.
+func loadStoredCredentials(cmd *cli.Command) (store credstore.Store, creds credstore.Credentials, found bool, err error) {
+	store, err = credStoreFromCommand(cmd)
+	if err != nil {
+		return nil, credstore.Credentials{}, false, err
+	}
+	creds, err = store.LoadCredentials()
+	if errors.Is(err, credstore.ErrNotFound) {
+		return store, credstore.Credentials{}, false, nil
+	}
+	if err != nil {
+		return nil, credstore.Credentials{}, false, err
+	}
+	return store, creds, true, nil
+}
+
 func newAuthTokenCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "token",
 		Usage: "Print a valid access token for the LFX platform",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			store, err := credStoreFromCommand(cmd)
+			store, creds, found, err := loadStoredCredentials(cmd)
 			if err != nil {
 				return err
 			}
-
-			creds, err := store.LoadCredentials()
-			if errors.Is(err, credstore.ErrNotFound) {
+			if !found {
 				return errors.New("not logged in; run `lfx auth login` first")
-			}
-			if err != nil {
-				return err
 			}
 
 			if creds.ValidAccessToken() {
@@ -361,18 +381,13 @@ func newAuthStatusCommand() *cli.Command {
 		Name:  "status",
 		Usage: "Show the current authentication status",
 		Action: func(_ context.Context, cmd *cli.Command) error {
-			store, err := credStoreFromCommand(cmd)
+			store, creds, found, err := loadStoredCredentials(cmd)
 			if err != nil {
 				return err
 			}
-
-			creds, err := store.LoadCredentials()
-			if errors.Is(err, credstore.ErrNotFound) {
+			if !found {
 				fmt.Println("Not logged in.")
 				return nil
-			}
-			if err != nil {
-				return err
 			}
 
 			state, err := store.LoadDeviceState()
