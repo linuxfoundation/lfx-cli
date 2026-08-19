@@ -46,15 +46,11 @@ lfx-cli/
 
 ### Current State
 
-This repo is under active scaffolding. Auth and API commands are currently
-stubs; real implementations land in follow-on work:
-
-- `lfx auth login` / `status` / `logout`
-- `lfx auth token`
-- `lfx api`
-
-Credential storage (system keychain via `99designs/keyring`) and the Auth0
-CIMD client are tracked separately.
+`lfx auth login` / `status` / `token` / `logout` are fully implemented,
+including the Auth0 Device Code flow, refresh-token exchange, and
+credential storage (system keychain via `99designs/keyring`, with a plain
+`--insecure-storage` fallback). `lfx api` remains a stub; its
+implementation lands in follow-on work.
 
 **No container build**: this project produces binary artifacts only,
 distributed via GitHub Releases, the `install.sh` curl-style installer

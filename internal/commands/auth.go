@@ -114,13 +114,14 @@ func runAuthLogin(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	audience := cmd.String(audienceFlagName)
+	insecure := cmd.Bool(insecureStorageFlagName)
 
 	if cmd.Bool(withTokenFlagName) {
-		return loginWithToken(store, env, domain, audience)
+		return loginWithToken(store, env, domain, audience, insecure)
 	}
 
 	client := &auth0.Client{Domain: domain, ClientID: clientID}
-	return loginWithDeviceCode(ctx, cmd, client, store, env, domain, audience)
+	return loginWithDeviceCode(ctx, cmd, client, store, env, domain, audience, insecure)
 }
 
 // loginWithToken implements `--with-token`: it reads a refresh token from
@@ -128,7 +129,7 @@ func runAuthLogin(ctx context.Context, cmd *cli.Command) error {
 // `echo "$REFRESH_TOKEN" | lfx auth login --with-token`. No access token is
 // cached; the next `lfx auth token` call exchanges the refresh token for
 // one.
-func loginWithToken(store credstore.Store, env auth0.Environment, domain, audience string) error {
+func loginWithToken(store credstore.Store, env auth0.Environment, domain, audience string, insecure bool) error {
 	reader := bufio.NewReader(os.Stdin)
 	line, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -146,6 +147,7 @@ func loginWithToken(store credstore.Store, env auth0.Environment, domain, audien
 		IDPDomain:   domain,
 		Environment: string(env),
 		Audience:    audience,
+		Insecure:    insecure,
 	}); err != nil {
 		return fmt.Errorf("save device state: %w", err)
 	}
@@ -165,6 +167,7 @@ func loginWithDeviceCode(
 	store credstore.Store,
 	env auth0.Environment,
 	domain, audience string,
+	insecure bool,
 ) error {
 	dc, err := client.RequestDeviceCode(ctx, audience, loginScopes)
 	if err != nil {
@@ -208,6 +211,7 @@ func loginWithDeviceCode(
 		IDPDomain:   domain,
 		Environment: string(env),
 		Audience:    audience,
+		Insecure:    insecure,
 	}); err != nil {
 		return fmt.Errorf("save device state: %w", err)
 	}
@@ -219,6 +223,69 @@ func loginWithDeviceCode(
 		}
 	}
 	return nil
+}
+
+// loadDeviceStateForBackend loads the persisted device state and validates
+// it against the current invocation before returning it:
+//
+//   - state.Insecure must match cmd's --insecure-storage flag. state.json is
+//     shared by both the keychain and plain-file credential backends (see
+//     credstore.DeviceState.Insecure), so a mismatch means this invocation's
+//     credentials were saved under a different backend than the one that
+//     last wrote state.json -- trusting it here would silently mix a
+//     refresh token from one backend with IdP/environment metadata written
+//     for the other.
+//   - the IdP domain implied by state.Environment (via auth0.Resolve, the
+//     source of truth) must match the persisted state.IDPDomain, guarding
+//     against a tampered or corrupted state.json redirecting a refresh
+//     request -- and its long-lived refresh token -- to another host.
+//
+// On success it returns the state along with the trusted domain and client
+// ID to use for any Auth0 request (always auth0.Resolve's values, never the
+// persisted ones).
+func loadDeviceStateForBackend(store credstore.Store, cmd *cli.Command) (state credstore.DeviceState, domain, clientID string, err error) {
+	state, err = store.LoadDeviceState()
+	if err != nil {
+		return credstore.DeviceState{}, "", "", err
+	}
+
+	if state.Insecure != cmd.Bool(insecureStorageFlagName) {
+		return credstore.DeviceState{}, "", "", fmt.Errorf(
+			"stored login state belongs to %s; pass %s to match, or run `lfx auth login` again",
+			backendDescription(state.Insecure), insecureStorageUsageHint(state.Insecure),
+		)
+	}
+
+	domain, clientID, err = auth0.Resolve(auth0.Environment(state.Environment))
+	if err != nil {
+		return credstore.DeviceState{}, "", "", err
+	}
+	if domain != state.IDPDomain {
+		return credstore.DeviceState{}, "", "", fmt.Errorf(
+			"stored IdP domain %q does not match %q for environment %q; run `lfx auth login` again",
+			state.IDPDomain, domain, state.Environment,
+		)
+	}
+
+	return state, domain, clientID, nil
+}
+
+// backendDescription renders a human-readable name for a credential
+// backend, for use in error messages.
+func backendDescription(insecure bool) string {
+	if insecure {
+		return "the plain-file (--insecure-storage) backend"
+	}
+	return "the system keychain"
+}
+
+// insecureStorageUsageHint renders the flag (or its absence) needed to
+// select the given backend, for use in error messages.
+func insecureStorageUsageHint(insecure bool) string {
+	if insecure {
+		return "--insecure-storage"
+	}
+	return "no --insecure-storage"
 }
 
 func newAuthTokenCommand() *cli.Command {
@@ -248,16 +315,11 @@ func newAuthTokenCommand() *cli.Command {
 				return errors.New("no refresh token available; run `lfx auth login` again")
 			}
 
-			state, err := store.LoadDeviceState()
+			_, domain, clientID, err := loadDeviceStateForBackend(store, cmd)
 			if err != nil {
 				return fmt.Errorf("load device state: %w", err)
 			}
-
-			_, clientID, err := auth0.Resolve(auth0.Environment(state.Environment))
-			if err != nil {
-				return err
-			}
-			client := &auth0.Client{Domain: state.IDPDomain, ClientID: clientID}
+			client := &auth0.Client{Domain: domain, ClientID: clientID}
 
 			token, err := client.RefreshToken(ctx, creds.RefreshToken)
 			if errors.Is(err, auth0.ErrInvalidGrant) {
@@ -317,6 +379,13 @@ func newAuthStatusCommand() *cli.Command {
 			}
 
 			fmt.Println("Logged in.")
+			if err == nil && state.Insecure != cmd.Bool(insecureStorageFlagName) {
+				fmt.Printf(
+					"  Note: stored login state below belongs to %s, not this credential backend; "+
+						"it may not describe these credentials. Run `lfx auth login` to refresh it.\n",
+					backendDescription(state.Insecure),
+				)
+			}
 			if state.Environment != "" {
 				fmt.Printf("  Environment: %s\n", state.Environment)
 			}
@@ -351,8 +420,27 @@ func newAuthLogoutCommand() *cli.Command {
 			if err := store.DeleteCredentials(); err != nil {
 				return fmt.Errorf("delete credentials: %w", err)
 			}
-			if err := store.DeleteDeviceState(); err != nil {
-				return fmt.Errorf("delete device state: %w", err)
+
+			// state.json is shared by both credential backends (see
+			// credstore.DeviceState.Insecure), so only delete it when it
+			// actually describes this invocation's backend; otherwise
+			// logging out of one backend would destroy metadata (env, IdP
+			// domain) still needed by the other backend's credentials.
+			state, err := store.LoadDeviceState()
+			switch {
+			case errors.Is(err, credstore.ErrNotFound):
+				// Nothing to delete.
+			case err != nil:
+				return fmt.Errorf("load device state: %w", err)
+			case state.Insecure == cmd.Bool(insecureStorageFlagName):
+				if err := store.DeleteDeviceState(); err != nil {
+					return fmt.Errorf("delete device state: %w", err)
+				}
+			default:
+				fmt.Printf(
+					"Note: leaving stored login state in place; it belongs to %s.\n",
+					backendDescription(state.Insecure),
+				)
 			}
 
 			fmt.Println("Logged out.")

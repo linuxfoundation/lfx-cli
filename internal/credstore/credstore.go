@@ -119,6 +119,15 @@ type DeviceState struct {
 	// back on refresh; it's persisted purely for display in
 	// `lfx auth status`.
 	Audience string `json:"audience,omitempty"`
+	// Insecure records whether `--insecure-storage` was passed at login,
+	// i.e. whether Credentials live in the plain-file backend rather than
+	// the system keychain. state.json itself is not namespaced by
+	// backend (both share the same file), so callers must check this
+	// against the invocation's own --insecure-storage flag before trusting
+	// the rest of the state: without that check, logging into one backend
+	// silently overwrites the metadata (env, IdP domain) that the other
+	// backend's still-present credentials depend on.
+	Insecure bool `json:"insecure,omitempty"`
 }
 
 // Store is the credential storage abstraction used by the auth commands.

@@ -58,8 +58,8 @@ lfx auth login --insecure-storage
 
 Run `lfx --help` or `lfx <command> --help` for full details on any command.
 
-> **Note:** This project is under active development. Authentication and API
-> commands are currently stubs; see the
+> **Note:** This project is under active development. `lfx auth` is fully
+> implemented; `lfx api` is currently a stub. See the
 > [LFXV2-2509 epic](https://linuxfoundation.atlassian.net/browse/LFXV2-2509)
 > for status.
 
