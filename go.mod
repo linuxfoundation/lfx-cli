@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 module github.com/linuxfoundation/lfx-cli
 
-go 1.26.5
+go 1.25.14
 
 require (
 	github.com/99designs/keyring v1.2.2
