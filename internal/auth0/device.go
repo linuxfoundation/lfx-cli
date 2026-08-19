@@ -30,9 +30,15 @@ const (
 	EnvDevelopment Environment = "development"
 )
 
-// domains maps each Environment to its Auth0 tenant domain.
+// domains maps each Environment to the Auth0 IdP domain end users
+// authenticate against, matching auth0-terraform's own `auth0_domain`
+// variable. This is deliberately not each tenant's *.auth0.com domain: prod
+// fronts its tenant with the custom domain sso.linuxfoundation.org, and
+// since this Client never calls the Auth0 Management API (only the device
+// code and token endpoints), there's no need to separately track the
+// underlying tenant name.
 var domains = map[Environment]string{
-	EnvProd:        "linuxfoundation.auth0.com",
+	EnvProd:        "sso.linuxfoundation.org",
 	EnvStaging:     "linuxfoundation-staging.auth0.com",
 	EnvDevelopment: "linuxfoundation-dev.auth0.com",
 }
@@ -73,7 +79,9 @@ func Resolve(env Environment) (domain, clientID string, err error) {
 // Method: None; is_first_party = true), so ClientSecret is deliberately
 // left unset.
 type Client struct {
-	// Domain is the Auth0 tenant domain, e.g. "linuxfoundation.auth0.com".
+	// Domain is the Auth0 IdP domain end users authenticate against, e.g.
+	// "linuxfoundation-dev.auth0.com" or, for a tenant fronted by a custom
+	// domain, "sso.linuxfoundation.org".
 	Domain string
 	// ClientID is the Auth0 application client ID used for both the
 	// device code request and subsequent token/refresh exchanges.
