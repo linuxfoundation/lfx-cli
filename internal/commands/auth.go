@@ -456,10 +456,18 @@ func newAuthLogoutCommand() *cli.Command {
 	}
 }
 
-// identityFromIDToken extracts a human-readable identifier (email or
-// subject) from an unverified decode of the ID token's JWT payload. It is
-// used only for a friendly "Logged in as ..." message; the access token
-// (verified server-side on every API call) is the actual credential.
+// lfidClaimsNamespace prefixes the custom LFID claims Auth0 adds to the ID
+// token, namely username. Distinct from the shorter "http://lfx.dev/claims"
+// LFX claims namespace used elsewhere.
+const lfidClaimsNamespace = "https://sso.linuxfoundation.org/claims/"
+
+// identityFromIDToken extracts a human-readable identity from an unverified
+// decode of the ID token's JWT payload, for a friendly "Logged in as ..."
+// message; the access token (verified server-side on every API call) is the
+// actual credential. LFX usernames (the custom claim above) are the
+// conventional identifier; email is included alongside it when present, and
+// email or subject alone are used as fallbacks if the custom claim is
+// unexpectedly missing.
 func identityFromIDToken(idToken string) string {
 	parts := strings.Split(idToken, ".")
 	if len(parts) != 3 {
@@ -471,18 +479,25 @@ func identityFromIDToken(idToken string) string {
 		return ""
 	}
 
-	var claims struct {
-		Email string `json:"email"`
-		Sub   string `json:"sub"`
-	}
+	var claims map[string]any
 	if err := json.Unmarshal(payload, &claims); err != nil {
 		return ""
 	}
 
-	if claims.Email != "" {
-		return claims.Email
+	username, _ := claims[lfidClaimsNamespace+"username"].(string)
+	email, _ := claims["email"].(string)
+	sub, _ := claims["sub"].(string)
+
+	switch {
+	case username != "" && email != "":
+		return fmt.Sprintf("%s (%s)", username, email)
+	case username != "":
+		return username
+	case email != "":
+		return fmt.Sprintf("%s (no username)", email)
+	default:
+		return sub
 	}
-	return claims.Sub
 }
 
 // base64URLDecode decodes a base64url-encoded JWT segment, tolerating the
