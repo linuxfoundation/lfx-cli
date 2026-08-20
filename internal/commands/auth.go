@@ -45,7 +45,7 @@ var loginScopes = []string{"openid", "profile", "email", "offline_access"}
 // The --insecure-storage flag is shared by all subcommands (it is not
 // declared as a "Local" flag, so urfave/cli resolves it for subcommand
 // actions via cmd.Bool) and controls whether credentials bypass the system
-// keychain in favor of credstore's plain (unencrypted) file fallback, e.g.
+// backend in favor of credstore's plain (unencrypted) file fallback, e.g.
 // for headless/CI use.
 func NewAuthCommand() *cli.Command {
 	return &cli.Command{
@@ -54,7 +54,7 @@ func NewAuthCommand() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  insecureStorageFlagName,
-				Usage: "Store credentials in a plain (unencrypted) file instead of the system keychain",
+				Usage: "Store credentials in a plain (unencrypted) file instead of the system backend",
 			},
 		},
 		Commands: []*cli.Command{
@@ -62,6 +62,7 @@ func NewAuthCommand() *cli.Command {
 			newAuthTokenCommand(),
 			newAuthStatusCommand(),
 			newAuthLogoutCommand(),
+			newAuthBackendsCommand(),
 		},
 	}
 }
@@ -275,7 +276,7 @@ func backendDescription(insecure bool) string {
 	if insecure {
 		return "the plain-file (--insecure-storage) backend"
 	}
-	return "the system keychain"
+	return "the system backend"
 }
 
 // insecureStorageUsageHint renders the flag (or its absence) needed to
@@ -399,7 +400,7 @@ func newAuthStatusCommand() *cli.Command {
 				return fmt.Errorf("load device state: %w", err)
 			}
 
-			backend := "system keychain"
+			backend := "system backend"
 			if cmd.Bool(insecureStorageFlagName) {
 				backend = "plain file (--insecure-storage)"
 			}
@@ -470,6 +471,32 @@ func newAuthLogoutCommand() *cli.Command {
 			}
 
 			fmt.Println("Logged out.")
+			return nil
+		},
+	}
+}
+
+// newAuthBackendsCommand builds `lfx auth backends`, which lists the system
+// credential-store backends compiled into this binary for the current OS
+// (see credstore.AvailableBackends), in the priority order `lfx auth login`
+// would try them. It does not attempt to open any backend, so a listed
+// backend may still turn out to be unusable at runtime (e.g. no D-Bus
+// session for Secret Service, `pass` not initialized).
+func newAuthBackendsCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "backends",
+		Usage: "List the system credential-store backends available on this OS",
+		Action: func(_ context.Context, _ *cli.Command) error {
+			backends := credstore.AvailableBackends()
+			if len(backends) == 0 {
+				fmt.Println("No system credential-store backends are available on this OS; `lfx auth login` requires --insecure-storage.")
+				return nil
+			}
+
+			fmt.Println("Available credential-store backends, in the order `lfx auth login` tries them:")
+			for _, b := range backends {
+				fmt.Printf("  %-15s %s\n", b.Name, b.DisplayName)
+			}
 			return nil
 		},
 	}

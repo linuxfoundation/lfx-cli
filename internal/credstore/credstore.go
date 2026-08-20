@@ -77,6 +77,52 @@ var systemBackends = []keyring.BackendType{
 	keyring.PassBackend,
 }
 
+// backendDisplayNames maps keyring.BackendType values to the human-readable
+// names shown by `lfx auth backends`.
+var backendDisplayNames = map[keyring.BackendType]string{
+	keyring.SecretServiceBackend: "Secret Service (GNOME Keyring, KeePassXC, etc.)",
+	keyring.KeychainBackend:      "macOS Keychain",
+	keyring.KWalletBackend:       "KDE Wallet (kwallet)",
+	keyring.WinCredBackend:       "Windows Credential Manager",
+	keyring.PassBackend:          "gpg-encrypted vault (passwordstore.org)",
+}
+
+// Backend describes one of the system credential-store backends compiled
+// into this binary for the current OS, as reported by `lfx auth backends`.
+type Backend struct {
+	// Name is the keyring.BackendType identifier (e.g. "keychain").
+	Name string
+	// DisplayName is a human-readable label for Name.
+	DisplayName string
+}
+
+// AvailableBackends reports the system credential-store backends compiled
+// into this binary for the current OS (Go build tags determine which
+// backends are even possible per-platform; see the per-backend source
+// files in github.com/99designs/keyring), in the same priority order (see
+// systemBackends) that New passes to keyring.Open as AllowedBackends. It
+// does not attempt to open any backend, so a backend listed here may still
+// fail at login time if it isn't actually usable at runtime (e.g. no D-Bus
+// session for Secret Service, `pass` not initialized, etc.).
+func AvailableBackends() []Backend {
+	available := make(map[keyring.BackendType]bool)
+	for _, b := range keyring.AvailableBackends() {
+		available[b] = true
+	}
+
+	var backends []Backend
+	for _, b := range systemBackends {
+		if !available[b] {
+			continue
+		}
+		backends = append(backends, Backend{
+			Name:        string(b),
+			DisplayName: backendDisplayNames[b],
+		})
+	}
+	return backends
+}
+
 // Credentials holds the secrets needed to authenticate with the LFX
 // platform: the long-lived Auth0 refresh token, and an optional cached
 // access token with its expiry.
