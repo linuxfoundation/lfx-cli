@@ -287,15 +287,19 @@ func insecureStorageUsageHint(insecure bool) string {
 	return "no --insecure-storage"
 }
 
-// persistLogin saves creds and state together, wrapping any failure with
-// context on which write failed. Note: the two writes are not atomic; if
-// SaveDeviceState fails after SaveCredentials succeeds, the caller is left
-// with new credentials paired with stale or missing environment metadata.
+// persistLogin saves creds and state together. The two writes are not
+// atomic, so if SaveDeviceState fails after SaveCredentials succeeds, the
+// newly saved credentials are rolled back (deleted) rather than left paired
+// with stale or missing environment metadata, which could otherwise send a
+// later refresh to the wrong Auth0 tenant.
 func persistLogin(store credstore.Store, creds credstore.Credentials, state credstore.DeviceState) error {
 	if err := store.SaveCredentials(creds); err != nil {
 		return fmt.Errorf("save credentials: %w", err)
 	}
 	if err := store.SaveDeviceState(state); err != nil {
+		if delErr := store.DeleteCredentials(); delErr != nil {
+			return fmt.Errorf("save device state: %w (and rollback of saved credentials also failed: %v)", err, delErr)
+		}
 		return fmt.Errorf("save device state: %w", err)
 	}
 	return nil
