@@ -14,16 +14,18 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// newTestCommand builds a *cli.Command with the --insecure-storage flag
-// registered (as newAuthLoginCommand and friends do), parses args against
-// it, and returns the parsed *cli.Command handed to fn's Action so tests
-// can read flag values the way the real commands do.
+// newTestCommand builds a *cli.Command with the --insecure-storage and
+// --backend flags registered (as newAuthLoginCommand and friends
+// do), parses args against it, and returns the parsed *cli.Command handed
+// to fn's Action so tests can read flag values the way the real commands
+// do.
 func newTestCommand(t *testing.T, args []string, fn func(cmd *cli.Command)) {
 	t.Helper()
 	cmd := &cli.Command{
 		Name: "test",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{Name: insecureStorageFlagName},
+			&cli.StringFlag{Name: backendFlagName},
 		},
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			fn(cmd)
@@ -132,6 +134,52 @@ func TestLoadDeviceStateForBackendDomainMismatch(t *testing.T) {
 	newTestCommand(t, []string{"--insecure-storage"}, func(cmd *cli.Command) {
 		if _, _, _, err := loadDeviceStateForBackend(store, cmd); err == nil {
 			t.Fatal("loadDeviceStateForBackend: got nil error, want IdP domain mismatch error")
+		}
+	})
+}
+
+func TestLoadDeviceStateForBackendKeyringBackendMismatch(t *testing.T) {
+	store := newInsecureStore(t)
+	if err := store.SaveDeviceState(credstore.DeviceState{
+		IDPDomain:   "linuxfoundation-dev.auth0.com",
+		Environment: "development",
+		Insecure:    true,
+		Backend:     "keychain",
+	}); err != nil {
+		t.Fatalf("SaveDeviceState: %v", err)
+	}
+
+	// A pinned state.Backend ("keychain") must match --backend on
+	// every later command; omitting the flag entirely disagrees with it.
+	newTestCommand(t, []string{"--insecure-storage"}, func(cmd *cli.Command) {
+		if _, _, _, err := loadDeviceStateForBackend(store, cmd); err == nil {
+			t.Fatal("loadDeviceStateForBackend: got nil error, want backend mismatch error")
+		}
+	})
+
+	// A different pinned value also disagrees.
+	newTestCommand(t, []string{"--insecure-storage", "--" + backendFlagName + "=pass"}, func(cmd *cli.Command) {
+		if _, _, _, err := loadDeviceStateForBackend(store, cmd); err == nil {
+			t.Fatal("loadDeviceStateForBackend: got nil error, want backend mismatch error")
+		}
+	})
+}
+
+func TestLoadDeviceStateForBackendUnpinnedAllowsAnyKeyringBackend(t *testing.T) {
+	store := newInsecureStore(t)
+	if err := store.SaveDeviceState(credstore.DeviceState{
+		IDPDomain:   "linuxfoundation-dev.auth0.com",
+		Environment: "development",
+		Insecure:    true,
+		// Backend intentionally left unset: an unpinned login can't be
+		// checked against --backend at all.
+	}); err != nil {
+		t.Fatalf("SaveDeviceState: %v", err)
+	}
+
+	newTestCommand(t, []string{"--insecure-storage", "--" + backendFlagName + "=keychain"}, func(cmd *cli.Command) {
+		if _, _, _, err := loadDeviceStateForBackend(store, cmd); err != nil {
+			t.Fatalf("loadDeviceStateForBackend: %v, want nil (unpinned state.Backend can't be checked)", err)
 		}
 	})
 }

@@ -28,6 +28,13 @@ import (
 // unencrypted file.
 const insecureStorageFlagName = "insecure-storage"
 
+// backendFlagName is the auth command group's flag pinning
+// credential storage to a single system keyring backend (see
+// `lfx auth backends`), instead of letting keyring.Open silently pick
+// whichever backend currently opens. Ignored when --insecure-storage is
+// set.
+const backendFlagName = "backend"
+
 // Flag names shared by the login command.
 const (
 	webFlagName       = "web"
@@ -42,11 +49,15 @@ var loginScopes = []string{"openid", "profile", "email", "offline_access"}
 
 // NewAuthCommand builds the `lfx auth` command group with its subcommands.
 //
-// The --insecure-storage flag is shared by all subcommands (it is not
-// declared as a "Local" flag, so urfave/cli resolves it for subcommand
-// actions via cmd.Bool) and controls whether credentials bypass the system
+// The --insecure-storage and --backend flags are shared by all
+// subcommands (they are not declared as "Local" flags, so urfave/cli
+// resolves them for subcommand actions via cmd.Bool/cmd.String).
+// --insecure-storage controls whether credentials bypass the system
 // backend in favor of credstore's plain (unencrypted) file fallback, e.g.
-// for headless/CI use.
+// for headless/CI use. --backend pins credential storage to a
+// single system backend rather than letting keyring.Open silently pick
+// whichever one currently opens; see credstore.DeviceState.Backend for why
+// that matters once a login has pinned one.
 func NewAuthCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "auth",
@@ -55,6 +66,10 @@ func NewAuthCommand() *cli.Command {
 			&cli.BoolFlag{
 				Name:  insecureStorageFlagName,
 				Usage: "Store credentials in a plain (unencrypted) file instead of the system backend",
+			},
+			&cli.StringFlag{
+				Name:  backendFlagName,
+				Usage: "Pin credential storage to a specific system backend (see `lfx auth backends`); ignored with --insecure-storage",
 			},
 		},
 		Commands: []*cli.Command{
@@ -68,10 +83,15 @@ func NewAuthCommand() *cli.Command {
 }
 
 // credStoreFromCommand builds a credstore.Store using the group-level
-// --insecure-storage flag, however deep in the `auth` subcommand tree cmd
-// is.
+// --insecure-storage and --backend flags, however deep in the
+// `auth` subcommand tree cmd is.
 func credStoreFromCommand(cmd *cli.Command) (credstore.Store, error) {
-	return credstore.New(credstore.Options{Insecure: cmd.Bool(insecureStorageFlagName)})
+	insecure := cmd.Bool(insecureStorageFlagName)
+	backend := cmd.String(backendFlagName)
+	if insecure && backend != "" {
+		return nil, fmt.Errorf("--%s cannot be combined with --%s", backendFlagName, insecureStorageFlagName)
+	}
+	return credstore.New(credstore.Options{Insecure: insecure, Backend: backend})
 }
 
 func newAuthLoginCommand() *cli.Command {
@@ -116,12 +136,13 @@ func runAuthLogin(ctx context.Context, cmd *cli.Command) error {
 	}
 	audience := cmd.String(audienceFlagName)
 	insecure := cmd.Bool(insecureStorageFlagName)
+	backend := cmd.String(backendFlagName)
 
 	if cmd.Bool(withTokenFlagName) {
-		return loginWithToken(store, env, domain, audience, insecure)
+		return loginWithToken(store, env, domain, audience, insecure, backend)
 	}
 
-	return loginWithDeviceCode(ctx, cmd, domain, clientID, store, env, audience, insecure)
+	return loginWithDeviceCode(ctx, cmd, domain, clientID, store, env, audience, insecure, backend)
 }
 
 // loginWithToken implements `--with-token`: it reads a refresh token from
@@ -129,7 +150,7 @@ func runAuthLogin(ctx context.Context, cmd *cli.Command) error {
 // `echo "$REFRESH_TOKEN" | lfx auth login --with-token`. No access token is
 // cached; the next `lfx auth token` call exchanges the refresh token for
 // one.
-func loginWithToken(store credstore.Store, env authEnvironment, domain, audience string, insecure bool) error {
+func loginWithToken(store credstore.Store, env authEnvironment, domain, audience string, insecure bool, backend string) error {
 	reader := bufio.NewReader(os.Stdin)
 	line, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -143,7 +164,7 @@ func loginWithToken(store credstore.Store, env authEnvironment, domain, audience
 	if err := persistLogin(
 		store,
 		credstore.Credentials{RefreshToken: refreshToken},
-		credstore.DeviceState{IDPDomain: domain, Environment: string(env), Audience: audience, Insecure: insecure},
+		credstore.DeviceState{IDPDomain: domain, Environment: string(env), Audience: audience, Insecure: insecure, Backend: backend},
 	); err != nil {
 		return err
 	}
@@ -164,6 +185,7 @@ func loginWithDeviceCode(
 	env authEnvironment,
 	audience string,
 	insecure bool,
+	backend string,
 ) error {
 	cfg := &oauth2.Config{
 		ClientID: clientID,
@@ -245,7 +267,7 @@ func loginWithDeviceCode(
 			AccessToken:       token.AccessToken,
 			AccessTokenExpiry: token.Expiry,
 		},
-		credstore.DeviceState{IDPDomain: domain, Environment: string(env), Audience: audience, Insecure: insecure},
+		credstore.DeviceState{IDPDomain: domain, Environment: string(env), Audience: audience, Insecure: insecure, Backend: backend},
 	); err != nil {
 		return err
 	}
@@ -269,6 +291,12 @@ func loginWithDeviceCode(
 //     last wrote state.json -- trusting it here would silently mix a
 //     refresh token from one backend with IdP/environment metadata written
 //     for the other.
+//   - if state.Backend was pinned (non-empty; see
+//     credstore.DeviceState.Backend), it must match cmd's --backend
+//     flag. Unlike Insecure, an unpinned state.Backend ("") can't be
+//     checked at all: keyring.Open can silently land on a different system
+//     backend across invocations, and once it does there's no recorded
+//     value to compare against.
 //   - the IdP domain implied by state.Environment (via resolveEnvironment,
 //     the source of truth) must match the persisted state.IDPDomain,
 //     guarding against a tampered or corrupted state.json redirecting a
@@ -288,6 +316,12 @@ func loadDeviceStateForBackend(store credstore.Store, cmd *cli.Command) (state c
 		return credstore.DeviceState{}, "", "", fmt.Errorf(
 			"stored login state belongs to %s; pass %s to match, or run `lfx auth login` again",
 			backendDescription(state.Insecure), insecureStorageUsageHint(state.Insecure),
+		)
+	}
+	if state.Backend != "" && state.Backend != cmd.String(backendFlagName) {
+		return credstore.DeviceState{}, "", "", fmt.Errorf(
+			"stored login was pinned to keyring backend %q; pass --%s=%s to match, or run `lfx auth login --%s=%s` again",
+			state.Backend, backendFlagName, state.Backend, backendFlagName, state.Backend,
 		)
 	}
 
@@ -321,6 +355,18 @@ func insecureStorageUsageHint(insecure bool) string {
 		return "--insecure-storage"
 	}
 	return "no --insecure-storage"
+}
+
+// stateMatchesInvocation reports whether state was written by an
+// invocation using the same --insecure-storage and (if pinned)
+// --backend as cmd, i.e. whether it's safe to trust or overwrite
+// state.json for this invocation. See loadDeviceStateForBackend for the
+// same checks used when actually consuming the state.
+func stateMatchesInvocation(state credstore.DeviceState, cmd *cli.Command) bool {
+	if state.Insecure != cmd.Bool(insecureStorageFlagName) {
+		return false
+	}
+	return state.Backend == "" || state.Backend == cmd.String(backendFlagName)
 }
 
 // persistLogin saves creds and state as a pair. The two writes are not
@@ -460,7 +506,7 @@ func newAuthStatusCommand() *cli.Command {
 			}
 
 			fmt.Println("Logged in.")
-			if err == nil && state.Insecure != cmd.Bool(insecureStorageFlagName) {
+			if err == nil && !stateMatchesInvocation(state, cmd) {
 				fmt.Printf(
 					"  Note: stored login state below belongs to %s, not this credential backend; "+
 						"it may not describe these credentials. Run `lfx auth login` to refresh it.\n",
@@ -468,19 +514,22 @@ func newAuthStatusCommand() *cli.Command {
 				)
 			}
 			if state.Environment != "" {
-				fmt.Printf("  Environment: %s\n", state.Environment)
+				fmt.Printf("  %-22s %s\n", "Environment:", state.Environment)
 			}
 			if state.IDPDomain != "" {
-				fmt.Printf("  IdP domain:  %s\n", state.IDPDomain)
+				fmt.Printf("  %-22s %s\n", "IdP domain:", state.IDPDomain)
 			}
 			if state.Audience != "" {
-				fmt.Printf("  Audience:    %s\n", state.Audience)
+				fmt.Printf("  %-22s %s\n", "Audience:", state.Audience)
 			}
-			fmt.Printf("  Credential backend: %s\n", backend)
+			fmt.Printf("  %-22s %s\n", "Credential backend:", backend)
+			if state.Backend != "" {
+				fmt.Printf("  %-22s %s\n", "Pinned backend:", state.Backend)
+			}
 			if creds.ValidAccessToken() {
-				fmt.Printf("  Access token expires: %s\n", creds.AccessTokenExpiry.Format(time.RFC3339))
+				fmt.Printf("  %-22s %s\n", "Access token expires:", creds.AccessTokenExpiry.Format(time.RFC3339))
 			} else {
-				fmt.Println("  Access token: expired or not cached (will refresh on next `lfx auth token`)")
+				fmt.Printf("  %-22s %s\n", "Access token:", "expired or not cached (will refresh on next `lfx auth token`)")
 			}
 
 			return nil
@@ -513,7 +562,7 @@ func newAuthLogoutCommand() *cli.Command {
 				// Nothing to delete.
 			case err != nil:
 				return fmt.Errorf("load device state: %w", err)
-			case state.Insecure == cmd.Bool(insecureStorageFlagName):
+			case stateMatchesInvocation(state, cmd):
 				if err := store.DeleteDeviceState(); err != nil {
 					return fmt.Errorf("delete device state: %w", err)
 				}

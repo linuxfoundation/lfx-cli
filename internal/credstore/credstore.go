@@ -7,9 +7,13 @@
 // Secrets (refresh token, cached access token and its expiry) are stored in
 // the operating system's credential store via github.com/99designs/keyring:
 // macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet,
-// or the `pass` password store. keyring's own encrypted-file backend is
-// deliberately excluded from this list: it isn't a real system keychain, and
-// its Remove behavior doesn't match keyring.ErrKeyNotFound (see
+// or the `pass` password store. Which of these keyring.Open actually
+// selects can vary between invocations on the same machine (e.g. Secret
+// Service reachable in one shell session but not another); --backend
+// pins it to one, and once pinned, the DeviceState.Backend it was pinned to
+// must match on every later command. keyring's own encrypted-file backend
+// is deliberately excluded from this list: it isn't a real system keychain,
+// and its Remove behavior doesn't match keyring.ErrKeyNotFound (see
 // keyringSecrets.Delete). If none of the allowed backends are available,
 // New returns an error rather than silently falling back to a file.
 //
@@ -34,6 +38,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/99designs/keyring"
@@ -123,6 +128,29 @@ func AvailableBackends() []Backend {
 	return backends
 }
 
+// isSystemBackend reports whether bt is one of the backends New is willing
+// to select at all (see systemBackends).
+func isSystemBackend(bt keyring.BackendType) bool {
+	for _, b := range systemBackends {
+		if b == bt {
+			return true
+		}
+	}
+	return false
+}
+
+// backendNames renders systemBackends' keyring.BackendType identifiers
+// (e.g. "keychain") for use in error messages about an invalid --keyring-
+// backend value; these are the same strings AvailableBackends reports as
+// Backend.Name.
+func backendNames() []string {
+	names := make([]string, len(systemBackends))
+	for i, b := range systemBackends {
+		names[i] = string(b)
+	}
+	return names
+}
+
 // Credentials holds the secrets needed to authenticate with the LFX
 // platform: the long-lived Auth0 refresh token, and an optional cached
 // access token with its expiry.
@@ -174,6 +202,18 @@ type DeviceState struct {
 	// silently overwrites the metadata (env, IdP domain) that the other
 	// backend's still-present credentials depend on.
 	Insecure bool `json:"insecure,omitempty"`
+	// Backend records the keyring.BackendType (e.g. "keychain") pinned via
+	// --backend at login, or "" if the backend was left to
+	// keyring.Open's own auto-detection. Unlike Insecure, an empty value
+	// here is not itself trustworthy: keyring.Open can silently select a
+	// *different* system backend across invocations (e.g. Secret Service
+	// is reachable in one shell session but not another, falling back to
+	// pass), so an unpinned login can't be protected against later landing
+	// on a different backend with the same state.json. Once a backend has
+	// been pinned, though, callers must require the same --backend
+	// value on every later command against this state, the same way
+	// Insecure is enforced.
+	Backend string `json:"backend,omitempty"`
 }
 
 // Store is the credential storage abstraction used by the auth commands.
@@ -211,6 +251,13 @@ type Options struct {
 	// leave empty to use $XDG_STATE_HOME/lfx-cli (or ~/.local/state/lfx-cli
 	// if $XDG_STATE_HOME is unset).
 	StateDir string
+
+	// Backend pins keyring.Open to a single system backend (e.g.
+	// "keychain"; see AvailableBackends for the valid values on this OS),
+	// instead of letting it probe systemBackends in priority order and
+	// silently use whichever one currently opens. Ignored when Insecure is
+	// set. Leave empty to keep the previous auto-detecting behavior.
+	Backend string
 }
 
 // secretsBackend abstracts over the two ways Credentials can be persisted:
@@ -242,6 +289,18 @@ func New(opts Options) (Store, error) {
 			path: filepath.Join(stateDir, insecureCredentialsFileName),
 		}
 	} else {
+		allowedBackends := systemBackends
+		if opts.Backend != "" {
+			bt := keyring.BackendType(opts.Backend)
+			if !isSystemBackend(bt) {
+				return nil, fmt.Errorf(
+					"credstore: unknown --backend %q (available: %s)",
+					opts.Backend, strings.Join(backendNames(), ", "),
+				)
+			}
+			allowedBackends = []keyring.BackendType{bt}
+		}
+
 		kr, err := keyring.Open(keyring.Config{
 			ServiceName: serviceName,
 			// The pass backend namespaces entries via PassPrefix, not
@@ -249,7 +308,7 @@ func New(opts Options) (Store, error) {
 			// stored as a top-level "credentials" entry in the user's
 			// password store, risking collisions with unrelated tools.
 			PassPrefix:               serviceName,
-			AllowedBackends:          systemBackends,
+			AllowedBackends:          allowedBackends,
 			KeychainTrustApplication: true,
 		})
 		if err != nil {
