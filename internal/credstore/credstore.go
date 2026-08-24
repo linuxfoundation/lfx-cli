@@ -23,9 +23,9 @@
 // storage.
 //
 // Non-sensitive state (environment, IdP domain, and audience used at login)
-// is always stored
-// as plain JSON under the XDG state directory (~/.local/state/lfx-cli/ by
-// default), per XDG Base Directory conventions for mutable runtime state.
+// is always stored as plain JSON under the XDG state directory
+// (~/.local/state/lfx-cli/ by default), per XDG Base Directory conventions
+// for mutable runtime state.
 package credstore
 
 import (

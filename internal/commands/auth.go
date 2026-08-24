@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linuxfoundation/lfx-cli/internal/auth0"
 	"github.com/linuxfoundation/lfx-cli/internal/credstore"
 	"github.com/urfave/cli/v3"
+	"golang.org/x/oauth2"
 )
 
 // insecureStorageFlagName is the auth command group's flag controlling
@@ -91,12 +91,12 @@ func newAuthLoginCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:  envFlagName,
 				Usage: "Target environment: prod, staging, or development",
-				Value: string(auth0.EnvProd),
+				Value: string(envProd),
 			},
 			&cli.StringFlag{
 				Name:  audienceFlagName,
 				Usage: "Auth0 API audience to request tokens for (independent of --env)",
-				Value: auth0.DefaultAudience,
+				Value: defaultAudience,
 			},
 		},
 		Action: runAuthLogin,
@@ -109,8 +109,8 @@ func runAuthLogin(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	env := auth0.Environment(cmd.String(envFlagName))
-	domain, clientID, err := auth0.Resolve(env)
+	env := authEnvironment(cmd.String(envFlagName))
+	domain, clientID, err := resolveEnvironment(env)
 	if err != nil {
 		return err
 	}
@@ -121,8 +121,7 @@ func runAuthLogin(ctx context.Context, cmd *cli.Command) error {
 		return loginWithToken(store, env, domain, audience, insecure)
 	}
 
-	client := &auth0.Client{Domain: domain, ClientID: clientID}
-	return loginWithDeviceCode(ctx, cmd, client, store, env, domain, audience, insecure)
+	return loginWithDeviceCode(ctx, cmd, domain, clientID, store, env, audience, insecure)
 }
 
 // loginWithToken implements `--with-token`: it reads a refresh token from
@@ -130,7 +129,7 @@ func runAuthLogin(ctx context.Context, cmd *cli.Command) error {
 // `echo "$REFRESH_TOKEN" | lfx auth login --with-token`. No access token is
 // cached; the next `lfx auth token` call exchanges the refresh token for
 // one.
-func loginWithToken(store credstore.Store, env auth0.Environment, domain, audience string, insecure bool) error {
+func loginWithToken(store credstore.Store, env authEnvironment, domain, audience string, insecure bool) error {
 	reader := bufio.NewReader(os.Stdin)
 	line, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -160,24 +159,37 @@ func loginWithToken(store credstore.Store, env auth0.Environment, domain, audien
 func loginWithDeviceCode(
 	ctx context.Context,
 	cmd *cli.Command,
-	client *auth0.Client,
+	domain, clientID string,
 	store credstore.Store,
-	env auth0.Environment,
-	domain, audience string,
+	env authEnvironment,
+	audience string,
 	insecure bool,
 ) error {
-	dc, err := client.RequestDeviceCode(ctx, audience, loginScopes)
+	cfg := &oauth2.Config{
+		ClientID: clientID,
+		Scopes:   loginScopes,
+		Endpoint: oauth2.Endpoint{
+			DeviceAuthURL: "https://" + domain + "/oauth/device/code",
+			TokenURL:      "https://" + domain + "/oauth/token",
+			AuthStyle:     oauth2.AuthStyleInParams,
+		},
+	}
+	var opts []oauth2.AuthCodeOption
+	if audience != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("audience", audience))
+	}
+	resp, err := cfg.DeviceAuth(ctx, opts...)
 	if err != nil {
-		return err
+		return fmt.Errorf("request device code: %w", err)
 	}
 
-	fmt.Printf("First copy your one-time code: %s\n", dc.UserCode)
+	fmt.Printf("First copy your one-time code: %s\n", resp.UserCode)
 	// VerificationURIComplete is optional per RFC 8628 §3.2; fall back to
 	// VerificationURI (always present) plus the user code if the IdP
 	// doesn't supply it.
-	verificationURI := dc.VerificationURIComplete
+	verificationURI := resp.VerificationURIComplete
 	if verificationURI == "" {
-		verificationURI = dc.VerificationURI
+		verificationURI = resp.VerificationURI
 	}
 	if cmd.Bool(webFlagName) {
 		fmt.Printf("Opening %s in your browser...\n", verificationURI)
@@ -190,18 +202,40 @@ func loginWithDeviceCode(
 	}
 	fmt.Println("Waiting for authentication...")
 
-	// Poll blocks internally until success or failure, honoring the
-	// device code's own expiry and Auth0's requested polling interval
-	// (including "slow_down" backoff).
-	token, err := dc.Poll()
-	switch {
-	case err == nil:
-	case errors.Is(err, auth0.ErrAccessDenied):
-		return errors.New("login was denied")
-	case errors.Is(err, auth0.ErrExpiredToken):
-		return errors.New("device code expired before login completed")
-	default:
-		return err
+	// DeviceAccessToken blocks until the user completes or rejects the
+	// flow, polling at the interval Auth0 specified (honoring "slow_down"
+	// backoff), bounded by the device code's own expiry.
+	token, err := cfg.DeviceAccessToken(ctx, resp)
+	if err != nil {
+		// DeviceAccessToken derives its polling deadline from the device
+		// code's expiry (RFC 8628 "expires_in") and, once that elapses,
+		// returns a bare context.DeadlineExceeded instead of waiting for
+		// one more poll where the server would otherwise answer
+		// error=expired_token itself. Both mean the same thing -- the
+		// device code's verification window ran out, not a token or
+		// network timeout -- so both map to the same message.
+		var retrieveErr *oauth2.RetrieveError
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			return errors.New("timed out waiting for login")
+		case errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "expired_token":
+			return errors.New("timed out waiting for login")
+		case errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "access_denied":
+			return errors.New("login was denied")
+		default:
+			return fmt.Errorf("unexpected error waiting for login: %w", err)
+		}
+	}
+
+	// offline_access was requested (see loginScopes), but Auth0 does not
+	// guarantee a refresh_token is issued -- e.g. a custom API/audience
+	// can have offline access disabled server-side regardless of the
+	// scopes requested. Persisting an empty refresh token here would let
+	// `lfx auth login` report success for a session that silently stops
+	// working (or worse, is treated as logged-in with no way to refresh)
+	// as soon as the cached access token expires, so fail loudly instead.
+	if token.RefreshToken == "" {
+		return errors.New("login did not receive a refresh token; offline access may be disabled for this API")
 	}
 
 	if err := persistLogin(
@@ -235,14 +269,15 @@ func loginWithDeviceCode(
 //     last wrote state.json -- trusting it here would silently mix a
 //     refresh token from one backend with IdP/environment metadata written
 //     for the other.
-//   - the IdP domain implied by state.Environment (via auth0.Resolve, the
-//     source of truth) must match the persisted state.IDPDomain, guarding
-//     against a tampered or corrupted state.json redirecting a refresh
-//     request -- and its long-lived refresh token -- to another host.
+//   - the IdP domain implied by state.Environment (via resolveEnvironment,
+//     the source of truth) must match the persisted state.IDPDomain,
+//     guarding against a tampered or corrupted state.json redirecting a
+//     refresh request -- and its long-lived refresh token -- to another
+//     host.
 //
 // On success it returns the state along with the trusted domain and client
-// ID to use for any Auth0 request (always auth0.Resolve's values, never the
-// persisted ones).
+// ID to use for any Auth0 request (always resolveEnvironment's values,
+// never the persisted ones).
 func loadDeviceStateForBackend(store credstore.Store, cmd *cli.Command) (state credstore.DeviceState, domain, clientID string, err error) {
 	state, err = store.LoadDeviceState()
 	if err != nil {
@@ -256,7 +291,7 @@ func loadDeviceStateForBackend(store credstore.Store, cmd *cli.Command) (state c
 		)
 	}
 
-	domain, clientID, err = auth0.Resolve(auth0.Environment(state.Environment))
+	domain, clientID, err = resolveEnvironment(authEnvironment(state.Environment))
 	if err != nil {
 		return credstore.DeviceState{}, "", "", err
 	}
@@ -288,11 +323,22 @@ func insecureStorageUsageHint(insecure bool) string {
 	return "no --insecure-storage"
 }
 
-// persistLogin saves creds and state together. The two writes are not
-// atomic, so if SaveDeviceState fails after SaveCredentials succeeds, the
-// newly saved credentials are rolled back (deleted) rather than left paired
+// persistLogin saves creds and state as a pair. The two writes are not
+// atomic: if SaveDeviceState fails after SaveCredentials succeeds, the
+// just-saved credentials are rolled back (deleted) rather than left paired
 // with stale or missing environment metadata, which could otherwise send a
 // later refresh to the wrong Auth0 tenant.
+//
+// This rollback is a delete, not a restore: on a re-login (the user was
+// already authenticated), SaveCredentials has already overwritten the
+// prior working credentials before SaveDeviceState is attempted, so a
+// SaveDeviceState failure here logs the user out rather than leaving the
+// previous, still-valid session in place. This is considered acceptable:
+// the failure mode requires state.json's write to fail (e.g. disk full or
+// permissions) immediately after a credentials write succeeded, and the
+// fix -- snapshotting and restoring prior credentials instead of deleting
+// -- adds meaningful complexity for a narrow, easily-recovered case (rerun
+// `lfx auth login`).
 func persistLogin(store credstore.Store, creds credstore.Credentials, state credstore.DeviceState) error {
 	if err := store.SaveCredentials(creds); err != nil {
 		return fmt.Errorf("save credentials: %w", err)
@@ -351,10 +397,18 @@ func newAuthTokenCommand() *cli.Command {
 			if err != nil {
 				return fmt.Errorf("load device state: %w", err)
 			}
-			client := &auth0.Client{Domain: domain, ClientID: clientID}
+			cfg := &oauth2.Config{
+				ClientID: clientID,
+				Endpoint: oauth2.Endpoint{
+					DeviceAuthURL: "https://" + domain + "/oauth/device/code",
+					TokenURL:      "https://" + domain + "/oauth/token",
+					AuthStyle:     oauth2.AuthStyleInParams,
+				},
+			}
 
-			token, err := client.RefreshToken(ctx, creds.RefreshToken)
-			if errors.Is(err, auth0.ErrInvalidGrant) {
+			token, err := cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: creds.RefreshToken}).Token()
+			var retrieveErr *oauth2.RetrieveError
+			if errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "invalid_grant" {
 				return errors.New("session expired or revoked; run `lfx auth login` to log in again")
 			}
 			if err != nil {
