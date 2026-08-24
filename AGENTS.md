@@ -146,16 +146,17 @@ func NewExampleCommand() *cli.Command {
 
 ### Package Comments
 
-Every file in a package must start with the same `// Package <name> ...`
-doc comment immediately above the `package` declaration. Revive's
-`package-comments` rule itself only requires one such comment per package,
-but MegaLinter's `GO_REVIVE` linter defaults to `GO_REVIVE_CLI_LINT_MODE:
-list_of_files`, invoking revive with a flat list of files instead of
-`./...`. Under that mode revive loses per-package grouping and flags any
-file lacking the comment, so duplicating the identical comment across
-every file in a package is a required workaround for how MegaLinter calls
-revive here, not an inherent revive requirement. Do not vary the wording
-between files in the same package.
+Every non-test (`*.go`, not `*_test.go`) file in a package must start with
+the same `// Package <name> ...` doc comment immediately above the
+`package` declaration. Revive's `package-comments` rule itself only
+requires one such comment per package, but MegaLinter's `GO_REVIVE` linter
+defaults to `GO_REVIVE_CLI_LINT_MODE: list_of_files`, invoking revive with
+a flat list of files instead of `./...`. Under that mode revive loses
+per-package grouping and flags any non-test file lacking the comment, so
+duplicating the identical comment across every non-test file in a package
+is a required workaround for how MegaLinter calls revive here, not an
+inherent revive requirement. Do not vary the wording between files in the
+same package.
 
 ## Documentation Generation
 
@@ -226,8 +227,9 @@ release binaries may be missing even though the GitHub Release exists.
 
 1. **Add Commands**: Create new commands in `internal/commands/` following
    the established pattern
-2. **Package Comments**: Every new `*.go` file must include the same
-   `// Package <name> ...` doc comment as the rest of its package
+2. **Package Comments**: Every new non-test `*.go` file must include the
+   same `// Package <name> ...` doc comment as the rest of its package
+   (see "Package Comments" above; `*_test.go` files are exempt)
 3. **Dependencies**: Run `go get -u ./... && go mod tidy` before every PR to
    keep dependencies current. This upgrades module dependencies only, not the
    Go toolchain itself (`go.mod`'s `go` directive) -- see the toolchain policy
