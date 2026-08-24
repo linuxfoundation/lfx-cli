@@ -41,7 +41,11 @@ func TestCredentialsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadCredentials: %v", err)
 	}
-	if got != want {
+	// AccessTokenExpiry round-trips through JSON, which can change its
+	// time.Time representation (e.g. Location) without changing the
+	// instant it represents, so compare it with Equal rather than as
+	// part of a struct-level != comparison.
+	if got.RefreshToken != want.RefreshToken || got.AccessToken != want.AccessToken || !got.AccessTokenExpiry.Equal(want.AccessTokenExpiry) {
 		t.Fatalf("LoadCredentials = %+v, want %+v", got, want)
 	}
 
