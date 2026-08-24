@@ -21,6 +21,17 @@ func newTestStore(t *testing.T) Store {
 	return store
 }
 
+func TestNewRejectsUnavailableBackend(t *testing.T) {
+	// Not a real keyring.BackendType on any OS, so this must be rejected
+	// regardless of which backends this build's OS actually compiles in
+	// (see isAvailableBackend, which checks AvailableBackends() rather
+	// than the cross-platform systemBackends list).
+	_, err := New(Options{Backend: "totally-bogus-backend", StateDir: t.TempDir()})
+	if err == nil {
+		t.Fatal("New: got nil error, want unavailable-backend error")
+	}
+}
+
 func TestCredentialsRoundTrip(t *testing.T) {
 	store := newTestStore(t)
 

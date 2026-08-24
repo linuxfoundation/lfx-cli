@@ -128,25 +128,31 @@ func AvailableBackends() []Backend {
 	return backends
 }
 
-// isSystemBackend reports whether bt is one of the backends New is willing
-// to select at all (see systemBackends).
-func isSystemBackend(bt keyring.BackendType) bool {
-	for _, b := range systemBackends {
-		if b == bt {
+// isAvailableBackend reports whether bt is one of the backends actually
+// compiled into this binary for the current OS (see AvailableBackends),
+// not merely one of the cross-platform systemBackends identifiers. New
+// validates --backend against this, not systemBackends: otherwise a value
+// like "keychain" would be accepted on Linux (where it's never even
+// compiled in, per the darwin-only build tag on
+// github.com/99designs/keyring's Keychain backend) only to fail later with
+// a generic keyring-open error instead of a clear "unsupported on this OS"
+// message.
+func isAvailableBackend(bt keyring.BackendType) bool {
+	for _, b := range AvailableBackends() {
+		if b.Name == string(bt) {
 			return true
 		}
 	}
 	return false
 }
 
-// backendNames renders systemBackends' keyring.BackendType identifiers
-// (e.g. "keychain") for use in error messages about an invalid --keyring-
-// backend value; these are the same strings AvailableBackends reports as
-// Backend.Name.
-func backendNames() []string {
-	names := make([]string, len(systemBackends))
-	for i, b := range systemBackends {
-		names[i] = string(b)
+// availableBackendNames renders AvailableBackends' Name fields for use in
+// error messages about an invalid --backend value.
+func availableBackendNames() []string {
+	backends := AvailableBackends()
+	names := make([]string, len(backends))
+	for i, b := range backends {
+		names[i] = b.Name
 	}
 	return names
 }
@@ -292,10 +298,10 @@ func New(opts Options) (Store, error) {
 		allowedBackends := systemBackends
 		if opts.Backend != "" {
 			bt := keyring.BackendType(opts.Backend)
-			if !isSystemBackend(bt) {
+			if !isAvailableBackend(bt) {
 				return nil, fmt.Errorf(
-					"credstore: unknown --backend %q (available: %s)",
-					opts.Backend, strings.Join(backendNames(), ", "),
+					"credstore: unknown or unsupported --backend %q on this OS (available: %s)",
+					opts.Backend, strings.Join(availableBackendNames(), ", "),
 				)
 			}
 			allowedBackends = []keyring.BackendType{bt}

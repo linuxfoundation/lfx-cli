@@ -69,7 +69,7 @@ func NewAuthCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  backendFlagName,
-				Usage: "Pin credential storage to a specific system backend (see `lfx auth backends`); ignored with --insecure-storage",
+				Usage: "Pin credential storage to a specific system backend (see `lfx auth backends`); mutually exclusive with --insecure-storage",
 			},
 		},
 		Commands: []*cli.Command{
