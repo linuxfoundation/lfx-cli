@@ -369,6 +369,22 @@ func stateMatchesInvocation(state credstore.DeviceState, cmd *cli.Command) bool 
 	return state.Backend == "" || state.Backend == cmd.String(backendFlagName)
 }
 
+// stateMismatchReason renders a human-readable explanation of why
+// stateMatchesInvocation returned false for state and cmd, for use in the
+// advisory notes `status` and `logout` print instead of erroring outright
+// (unlike loadDeviceStateForBackend, which does treat this as fatal).
+// Distinguishing the two causes matters: backendDescription(state.Insecure)
+// alone describes only the Insecure mismatch and, for a --backend pin
+// mismatch where Insecure actually matches, would misleadingly reuse the
+// current invocation's own backend name and omit the --backend value
+// needed to fix it.
+func stateMismatchReason(state credstore.DeviceState, cmd *cli.Command) string {
+	if state.Insecure != cmd.Bool(insecureStorageFlagName) {
+		return fmt.Sprintf("%s (pass %s to match)", backendDescription(state.Insecure), insecureStorageUsageHint(state.Insecure))
+	}
+	return fmt.Sprintf("keyring backend %q pinned at login (pass --%s=%s to match)", state.Backend, backendFlagName, state.Backend)
+}
+
 // persistLogin saves creds and state as a pair. The two writes are not
 // atomic: if SaveDeviceState fails after SaveCredentials succeeds, the
 // just-saved credentials are rolled back (deleted) rather than left paired
@@ -517,7 +533,7 @@ func newAuthStatusCommand() *cli.Command {
 				fmt.Printf(
 					"  Note: stored login state below belongs to %s, not this credential backend; "+
 						"it may not describe these credentials. Run `lfx auth login` to refresh it.\n",
-					backendDescription(state.Insecure),
+					stateMismatchReason(state, cmd),
 				)
 			}
 			if state.Environment != "" {
@@ -576,7 +592,7 @@ func newAuthLogoutCommand() *cli.Command {
 			default:
 				fmt.Printf(
 					"Note: leaving stored login state in place; it belongs to %s.\n",
-					backendDescription(state.Insecure),
+					stateMismatchReason(state, cmd),
 				)
 			}
 
