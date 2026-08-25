@@ -577,6 +577,16 @@ func newAuthLogoutCommand() *cli.Command {
 			// credentials actually live in, while still reporting
 			// success. Mirrors the guard newAuthTokenCommand applies via
 			// loadDeviceStateForBackend before trusting cached creds.
+			//
+			// This guard only applies when the invocation is
+			// auto-detecting its backend (no explicit --backend or
+			// --insecure-storage). An explicit selection unambiguously
+			// names the store credStoreFromCommand already opened, so a
+			// pinned-state mismatch there just means state.json describes
+			// a different, untouched backend -- safe to delete this
+			// backend's credentials without also clearing that state.
+			explicitBackend := cmd.IsSet(backendFlagName) || cmd.IsSet(insecureStorageFlagName)
+
 			state, err := store.LoadDeviceState()
 			stateFound := true
 			switch {
@@ -585,7 +595,8 @@ func newAuthLogoutCommand() *cli.Command {
 			case err != nil:
 				return fmt.Errorf("load device state: %w", err)
 			}
-			if stateFound && !stateMatchesInvocation(state, cmd) {
+			stateMatches := !stateFound || stateMatchesInvocation(state, cmd)
+			if !stateMatches && !explicitBackend {
 				return fmt.Errorf(
 					"stored login belongs to %s; refusing to delete credentials from a different backend",
 					stateMismatchReason(state, cmd),
@@ -596,7 +607,10 @@ func newAuthLogoutCommand() *cli.Command {
 				return fmt.Errorf("delete credentials: %w", err)
 			}
 
-			if stateFound {
+			// Only clear state.json when it actually describes this
+			// invocation's backend; otherwise it belongs to a different,
+			// still-populated backend and must be left alone.
+			if stateFound && stateMatches {
 				if err := store.DeleteDeviceState(); err != nil {
 					return fmt.Errorf("delete device state: %w", err)
 				}
