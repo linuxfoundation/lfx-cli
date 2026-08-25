@@ -579,13 +579,19 @@ func newAuthLogoutCommand() *cli.Command {
 			// loadDeviceStateForBackend before trusting cached creds.
 			//
 			// This guard only applies when the invocation is
-			// auto-detecting its backend (no explicit --backend or
-			// --insecure-storage). An explicit selection unambiguously
-			// names the store credStoreFromCommand already opened, so a
-			// pinned-state mismatch there just means state.json describes
-			// a different, untouched backend -- safe to delete this
+			// auto-detecting its backend (no --backend value and
+			// --insecure-storage not effectively true). An explicit
+			// selection unambiguously names the store
+			// credStoreFromCommand already opened, so a pinned-state
+			// mismatch there just means state.json describes a
+			// different, untouched backend -- safe to delete this
 			// backend's credentials without also clearing that state.
-			explicitBackend := cmd.IsSet(backendFlagName) || cmd.IsSet(insecureStorageFlagName)
+			// Checking the effective values (rather than cmd.IsSet)
+			// matters: --backend= or --insecure-storage=false are
+			// indistinguishable from omitting the flag entirely and
+			// still resolve to auto-detection, so they must not bypass
+			// this guard.
+			explicitBackend := cmd.String(backendFlagName) != "" || cmd.Bool(insecureStorageFlagName)
 
 			state, err := store.LoadDeviceState()
 			stateFound := true
