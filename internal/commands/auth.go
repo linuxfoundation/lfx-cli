@@ -570,30 +570,36 @@ func newAuthLogoutCommand() *cli.Command {
 				return err
 			}
 
+			// Validate any pinned backend/insecure-storage state before
+			// the destructive DeleteCredentials call below -- otherwise
+			// omitting a pinned --backend could still auto-detect and
+			// delete (or no-op on) a different backend than the one the
+			// credentials actually live in, while still reporting
+			// success. Mirrors the guard newAuthTokenCommand applies via
+			// loadDeviceStateForBackend before trusting cached creds.
+			state, err := store.LoadDeviceState()
+			stateFound := true
+			switch {
+			case errors.Is(err, credstore.ErrNotFound):
+				stateFound = false
+			case err != nil:
+				return fmt.Errorf("load device state: %w", err)
+			}
+			if stateFound && !stateMatchesInvocation(state, cmd) {
+				return fmt.Errorf(
+					"stored login belongs to %s; refusing to delete credentials from a different backend",
+					stateMismatchReason(state, cmd),
+				)
+			}
+
 			if err := store.DeleteCredentials(); err != nil {
 				return fmt.Errorf("delete credentials: %w", err)
 			}
 
-			// state.json is shared by both credential backends (see
-			// credstore.DeviceState.Insecure), so only delete it when it
-			// actually describes this invocation's backend; otherwise
-			// logging out of one backend would destroy metadata (env, IdP
-			// domain) still needed by the other backend's credentials.
-			state, err := store.LoadDeviceState()
-			switch {
-			case errors.Is(err, credstore.ErrNotFound):
-				// Nothing to delete.
-			case err != nil:
-				return fmt.Errorf("load device state: %w", err)
-			case stateMatchesInvocation(state, cmd):
+			if stateFound {
 				if err := store.DeleteDeviceState(); err != nil {
 					return fmt.Errorf("delete device state: %w", err)
 				}
-			default:
-				fmt.Printf(
-					"Note: leaving stored login state in place; it belongs to %s.\n",
-					stateMismatchReason(state, cmd),
-				)
 			}
 
 			fmt.Println("Logged out.")

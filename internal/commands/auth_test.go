@@ -282,3 +282,25 @@ func TestIdentityFromIDToken(t *testing.T) {
 		}
 	})
 }
+
+func TestStateMismatchReasonInsecureMismatch(t *testing.T) {
+	state := credstore.DeviceState{Insecure: true}
+	newTestCommand(t, nil, func(cmd *cli.Command) {
+		got := stateMismatchReason(state, cmd)
+		want := "the plain-file (--insecure-storage) backend (pass --insecure-storage to match)"
+		if got != want {
+			t.Errorf("stateMismatchReason() = %q, want %q", got, want)
+		}
+	})
+}
+
+func TestStateMismatchReasonBackendPinMismatch(t *testing.T) {
+	state := credstore.DeviceState{Insecure: false, Backend: "keychain"}
+	newTestCommand(t, nil, func(cmd *cli.Command) {
+		got := stateMismatchReason(state, cmd)
+		want := `keyring backend "keychain" pinned at login (pass --backend=keychain to match)`
+		if got != want {
+			t.Errorf("stateMismatchReason() = %q, want %q", got, want)
+		}
+	})
+}
