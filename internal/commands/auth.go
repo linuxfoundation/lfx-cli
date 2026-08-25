@@ -31,8 +31,8 @@ const insecureStorageFlagName = "insecure-storage"
 // backendFlagName is the auth command group's flag pinning
 // credential storage to a single system keyring backend (see
 // `lfx auth backends`), instead of letting keyring.Open silently pick
-// whichever backend currently opens. Ignored when --insecure-storage is
-// set.
+// whichever backend currently opens. Mutually exclusive with
+// --insecure-storage; credStoreFromCommand rejects passing both.
 const backendFlagName = "backend"
 
 // Flag names shared by the login command.
@@ -430,6 +430,17 @@ func newAuthTokenCommand() *cli.Command {
 				return errors.New("not logged in; run `lfx auth login` first")
 			}
 
+			// Validate the persisted device state (insecure-storage and
+			// --backend pinning) before trusting or returning anything
+			// from creds, including the ValidAccessToken fast path below
+			// -- otherwise omitting a pinned --backend could still open
+			// some other auto-detected backend and print its cached
+			// token, defeating the pin.
+			_, domain, clientID, err := loadDeviceStateForBackend(store, cmd)
+			if err != nil {
+				return fmt.Errorf("load device state: %w", err)
+			}
+
 			if creds.ValidAccessToken() {
 				fmt.Println(creds.AccessToken)
 				return nil
@@ -439,10 +450,6 @@ func newAuthTokenCommand() *cli.Command {
 				return errors.New("no refresh token available; run `lfx auth login` again")
 			}
 
-			_, domain, clientID, err := loadDeviceStateForBackend(store, cmd)
-			if err != nil {
-				return fmt.Errorf("load device state: %w", err)
-			}
 			cfg := &oauth2.Config{
 				ClientID: clientID,
 				Endpoint: oauth2.Endpoint{
