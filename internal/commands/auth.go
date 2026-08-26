@@ -438,70 +438,84 @@ func newAuthTokenCommand() *cli.Command {
 		Name:  "token",
 		Usage: "Print a valid access token for the LFX platform",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			store, creds, found, err := loadStoredCredentials(cmd)
+			token, _, err := resolveAccessToken(ctx, cmd)
 			if err != nil {
 				return err
 			}
-			if !found {
-				return errors.New("not logged in; run `lfx auth login` first")
-			}
-
-			// Validate the persisted device state (insecure-storage and
-			// --backend pinning) before trusting or returning anything
-			// from creds, including the ValidAccessToken fast path below
-			// -- otherwise omitting a pinned --backend could still open
-			// some other auto-detected backend and print its cached
-			// token, defeating the pin.
-			_, domain, clientID, err := loadDeviceStateForBackend(store, cmd)
-			if err != nil {
-				return fmt.Errorf("load device state: %w", err)
-			}
-
-			if creds.ValidAccessToken() {
-				fmt.Println(creds.AccessToken)
-				return nil
-			}
-
-			if creds.RefreshToken == "" {
-				return errors.New("no refresh token available; run `lfx auth login` again")
-			}
-
-			cfg := &oauth2.Config{
-				ClientID: clientID,
-				Endpoint: oauth2.Endpoint{
-					DeviceAuthURL: "https://" + domain + "/oauth/device/code",
-					TokenURL:      "https://" + domain + "/oauth/token",
-					AuthStyle:     oauth2.AuthStyleInParams,
-				},
-			}
-
-			token, err := cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: creds.RefreshToken}).Token()
-			var retrieveErr *oauth2.RetrieveError
-			if errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "invalid_grant" {
-				return errors.New("session expired or revoked; run `lfx auth login` to log in again")
-			}
-			if err != nil {
-				return fmt.Errorf("refresh access token: %w", err)
-			}
-
-			refreshToken := token.RefreshToken
-			if refreshToken == "" {
-				// Auth0 may not rotate the refresh token on every
-				// exchange; keep the existing one in that case.
-				refreshToken = creds.RefreshToken
-			}
-			if err := store.SaveCredentials(credstore.Credentials{
-				RefreshToken:      refreshToken,
-				AccessToken:       token.AccessToken,
-				AccessTokenExpiry: token.Expiry,
-			}); err != nil {
-				return fmt.Errorf("save refreshed credentials: %w", err)
-			}
-
-			fmt.Println(token.AccessToken)
+			fmt.Println(token)
 			return nil
 		},
 	}
+}
+
+// resolveAccessToken returns a valid access token for the current login,
+// refreshing it (and persisting the refreshed credentials) if the cached
+// one is missing or expired. It also returns the audience recorded at
+// login time, so callers (e.g. `lfx api`) can use it as their default API
+// base URL. Both `lfx auth token` and `lfx api` share this single code
+// path so their refresh, error, and credential-persistence behavior never
+// drifts apart.
+func resolveAccessToken(ctx context.Context, cmd *cli.Command) (token, audience string, err error) {
+	store, creds, found, err := loadStoredCredentials(cmd)
+	if err != nil {
+		return "", "", err
+	}
+	if !found {
+		return "", "", errors.New("not logged in; run `lfx auth login` first")
+	}
+
+	// Validate the persisted device state (insecure-storage and
+	// --backend pinning) before trusting or returning anything from
+	// creds, including the ValidAccessToken fast path below -- otherwise
+	// omitting a pinned --backend could still open some other
+	// auto-detected backend and return its cached token, defeating the
+	// pin.
+	state, domain, clientID, err := loadDeviceStateForBackend(store, cmd)
+	if err != nil {
+		return "", "", fmt.Errorf("load device state: %w", err)
+	}
+
+	if creds.ValidAccessToken() {
+		return creds.AccessToken, state.Audience, nil
+	}
+
+	if creds.RefreshToken == "" {
+		return "", "", errors.New("no refresh token available; run `lfx auth login` again")
+	}
+
+	cfg := &oauth2.Config{
+		ClientID: clientID,
+		Endpoint: oauth2.Endpoint{
+			DeviceAuthURL: "https://" + domain + "/oauth/device/code",
+			TokenURL:      "https://" + domain + "/oauth/token",
+			AuthStyle:     oauth2.AuthStyleInParams,
+		},
+	}
+
+	refreshed, err := cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: creds.RefreshToken}).Token()
+	var retrieveErr *oauth2.RetrieveError
+	if errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "invalid_grant" {
+		return "", "", errors.New("session expired or revoked; run `lfx auth login` to log in again")
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("refresh access token: %w", err)
+	}
+
+	refreshToken := refreshed.RefreshToken
+	if refreshToken == "" {
+		// Auth0 may not rotate the refresh token on every exchange; keep
+		// the existing one in that case.
+		refreshToken = creds.RefreshToken
+	}
+	if err := store.SaveCredentials(credstore.Credentials{
+		RefreshToken:      refreshToken,
+		AccessToken:       refreshed.AccessToken,
+		AccessTokenExpiry: refreshed.Expiry,
+	}); err != nil {
+		return "", "", fmt.Errorf("save refreshed credentials: %w", err)
+	}
+
+	return refreshed.AccessToken, state.Audience, nil
 }
 
 func newAuthStatusCommand() *cli.Command {

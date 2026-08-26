@@ -39,7 +39,8 @@ lfx auth token
 lfx auth logout
 
 # Make an authenticated call to an LFX platform API endpoint.
-lfx api <method> <path>
+lfx api <path>
+lfx api -X POST /projects --field name=example
 ```
 
 Credentials (refresh token, cached access token) are stored in your
@@ -62,11 +63,6 @@ lfx auth login --backend=keychain
 ```
 
 Run `lfx --help` or `lfx <command> --help` for full details on any command.
-
-> **Note:** This project is under active development. `lfx auth` is fully
-> implemented; `lfx api` is currently a stub. See the
-> [LFXV2-2509 epic](https://linuxfoundation.atlassian.net/browse/LFXV2-2509)
-> for status.
 
 ## Development
 
