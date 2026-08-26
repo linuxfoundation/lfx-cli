@@ -32,7 +32,9 @@ const (
 )
 
 // apiAllowedMethods enumerates the HTTP methods `lfx api` accepts via
-// --method. PATCH is deliberately excluded per the command's plan.
+// --method. PATCH is deliberately excluded: the LFX API, by design,
+// currently includes no PATCH endpoints, favoring PUT with ETag/If-Match
+// concurrency control instead.
 var apiAllowedMethods = map[string]bool{
 	http.MethodGet:    true,
 	http.MethodPost:   true,
