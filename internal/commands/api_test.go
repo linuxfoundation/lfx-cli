@@ -168,6 +168,53 @@ func TestAPIRequestBodyInputRejectsCombiningWithFields(t *testing.T) {
 	})
 }
 
+func TestAPIHasExplicitBody(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "no body flags", args: nil, want: false},
+		{name: "field", args: []string{"--field", "name=example"}, want: true},
+		{name: "raw-field", args: []string{"--raw-field", "name=example"}, want: true},
+		{name: "input file", args: []string{"--input", "/dev/null"}, want: true},
+		{name: "input stdin marker", args: []string{"--input", "-"}, want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			newAPITestCommand(t, tc.args, func(cmd *cli.Command) {
+				if got := apiHasExplicitBody(cmd); got != tc.want {
+					t.Errorf("apiHasExplicitBody() = %v, want %v", got, tc.want)
+				}
+			})
+		})
+	}
+}
+
+func TestAPIRequestBodyStatError(t *testing.T) {
+	// Substitute an already-closed file for os.Stdin so Stat() fails,
+	// simulating the rare platforms/conditions where stdin can't be
+	// probed at all; apiRequestBody should surface that error rather
+	// than silently falling back to an empty body.
+	f, err := os.CreateTemp(t.TempDir(), "closed-stdin")
+	if err != nil {
+		t.Fatalf("os.CreateTemp: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	orig := os.Stdin
+	os.Stdin = f
+	t.Cleanup(func() { os.Stdin = orig })
+
+	newAPITestCommand(t, nil, func(cmd *cli.Command) {
+		if _, _, err := apiRequestBody(cmd); err == nil {
+			t.Fatal("apiRequestBody: got nil error, want error from failed stdin Stat()")
+		}
+	})
+}
+
 func TestAPIRequestBodyNoneWithPipedStdin(t *testing.T) {
 	// os.Stdin under `go test` is not a real TTY, so apiRequestBody's
 	// non-char-device check treats it as piped; substitute an explicit,

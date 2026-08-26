@@ -53,7 +53,7 @@ func NewAPICommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    apiMethodFlagName,
 				Aliases: []string{"X"},
-				Usage:   "HTTP method: GET, POST, PUT, or DELETE",
+				Usage:   "HTTP method: GET, POST, PUT, or DELETE (default: GET, or POST if a body is explicitly supplied)",
 				Value:   http.MethodGet,
 			},
 			&cli.StringSliceFlag{
@@ -95,6 +95,17 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	method := strings.ToUpper(cmd.String(apiMethodFlagName))
+	if !cmd.IsSet(apiMethodFlagName) && apiHasExplicitBody(cmd) {
+		// No --method was passed, but the caller explicitly supplied a
+		// body via --field/--raw-field/--input; a GET request wouldn't
+		// carry it anywhere useful. Auto-promote to POST, matching the
+		// conventional default `gh api` and `curl` both use when a body
+		// is present. This never triggers for a body implicitly picked
+		// up from piped stdin with no explicit body flag, since that's
+		// not a clear enough signal of intent to override the GET
+		// default.
+		method = http.MethodPost
+	}
 	if !apiAllowedMethods[method] {
 		return fmt.Errorf("invalid --%s %q (must be one of GET, POST, PUT, DELETE)", apiMethodFlagName, method)
 	}
@@ -163,6 +174,17 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+// apiHasExplicitBody reports whether cmd was given an explicit
+// body-supplying flag (--input, --field, or --raw-field), as opposed to a
+// body implicitly picked up from piped stdin with none of those flags set.
+// Used to decide whether the default --method should be promoted from GET;
+// see runAPI.
+func apiHasExplicitBody(cmd *cli.Command) bool {
+	return cmd.String(apiInputFlagName) != "" ||
+		len(cmd.StringSlice(apiFieldFlagName)) > 0 ||
+		len(cmd.StringSlice(apiRawFieldFlagName)) > 0
+}
+
 // apiRequestBody constructs the request body and its Content-Type from the
 // command's --input, --field, and --raw-field flags (mutually exclusive:
 // --input vs. --field/--raw-field), falling back to stdin when none are
@@ -215,7 +237,10 @@ func apiRequestBody(cmd *cli.Command) (body []byte, contentType string, err erro
 	}
 
 	stat, err := os.Stdin.Stat()
-	if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
+	if err != nil {
+		return nil, "", fmt.Errorf("stat stdin: %w", err)
+	}
+	if stat.Mode()&os.ModeCharDevice == 0 {
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return nil, "", fmt.Errorf("read stdin: %w", err)
