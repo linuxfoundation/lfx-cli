@@ -7,9 +7,13 @@
 // Secrets (refresh token, cached access token and its expiry) are stored in
 // the operating system's credential store via github.com/99designs/keyring:
 // macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet,
-// or the `pass` password store. keyring's own encrypted-file backend is
-// deliberately excluded from this list: it isn't a real system keychain, and
-// its Remove behavior doesn't match keyring.ErrKeyNotFound (see
+// or the `pass` password store. Which of these keyring.Open actually
+// selects can vary between invocations on the same machine (e.g. Secret
+// Service reachable in one shell session but not another); --backend
+// pins it to one, and once pinned, the DeviceState.Backend it was pinned to
+// must match on every later command. keyring's own encrypted-file backend
+// is deliberately excluded from this list: it isn't a real system keychain,
+// and its Remove behavior doesn't match keyring.ErrKeyNotFound (see
 // keyringSecrets.Delete). If none of the allowed backends are available,
 // New returns an error rather than silently falling back to a file.
 //
@@ -22,9 +26,10 @@
 // acceptable, and is deliberately less secure than the keyring-backed
 // storage.
 //
-// Non-sensitive state (device ID, IdP domain used at login) is always stored
-// as plain JSON under the XDG state directory (~/.local/state/lfx-cli/ by
-// default), per XDG Base Directory conventions for mutable runtime state.
+// Non-sensitive state (environment, IdP domain, and audience used at login)
+// is always stored as plain JSON under the XDG state directory
+// (~/.local/state/lfx-cli/ by default), per XDG Base Directory conventions
+// for mutable runtime state.
 package credstore
 
 import (
@@ -33,6 +38,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/99designs/keyring"
@@ -76,6 +82,81 @@ var systemBackends = []keyring.BackendType{
 	keyring.PassBackend,
 }
 
+// backendDisplayNames maps keyring.BackendType values to the human-readable
+// names shown by `lfx auth backends`.
+var backendDisplayNames = map[keyring.BackendType]string{
+	keyring.SecretServiceBackend: "Secret Service (GNOME Keyring, KeePassXC, etc.)",
+	keyring.KeychainBackend:      "macOS Keychain",
+	keyring.KWalletBackend:       "KDE Wallet (kwallet)",
+	keyring.WinCredBackend:       "Windows Credential Manager",
+	keyring.PassBackend:          "gpg-encrypted vault (passwordstore.org)",
+}
+
+// Backend describes one of the system credential-store backends compiled
+// into this binary for the current OS, as reported by `lfx auth backends`.
+type Backend struct {
+	// Name is the keyring.BackendType identifier (e.g. "keychain").
+	Name string
+	// DisplayName is a human-readable label for Name.
+	DisplayName string
+}
+
+// AvailableBackends reports the system credential-store backends compiled
+// into this binary for the current OS (Go build tags determine which
+// backends are even possible per-platform; see the per-backend source
+// files in github.com/99designs/keyring), in the same priority order (see
+// systemBackends) that New passes to keyring.Open as AllowedBackends. It
+// does not attempt to open any backend, so a backend listed here may still
+// fail at login time if it isn't actually usable at runtime (e.g. no D-Bus
+// session for Secret Service, `pass` not initialized, etc.).
+func AvailableBackends() []Backend {
+	available := make(map[keyring.BackendType]bool)
+	for _, b := range keyring.AvailableBackends() {
+		available[b] = true
+	}
+
+	var backends []Backend
+	for _, b := range systemBackends {
+		if !available[b] {
+			continue
+		}
+		backends = append(backends, Backend{
+			Name:        string(b),
+			DisplayName: backendDisplayNames[b],
+		})
+	}
+	return backends
+}
+
+// isAvailableBackend reports whether bt is one of the backends actually
+// compiled into this binary for the current OS (see AvailableBackends),
+// not merely one of the cross-platform systemBackends identifiers. New
+// validates --backend against this, not systemBackends: otherwise a value
+// like "keychain" would be accepted on Linux (where it's never even
+// compiled in, per the darwin-only build tag on
+// github.com/99designs/keyring's Keychain backend) only to fail later with
+// a generic keyring-open error instead of a clear "unsupported on this OS"
+// message.
+func isAvailableBackend(bt keyring.BackendType) bool {
+	for _, b := range AvailableBackends() {
+		if b.Name == string(bt) {
+			return true
+		}
+	}
+	return false
+}
+
+// availableBackendNames renders AvailableBackends' Name fields for use in
+// error messages about an invalid --backend value.
+func availableBackendNames() []string {
+	backends := AvailableBackends()
+	names := make([]string, len(backends))
+	for i, b := range backends {
+		names[i] = b.Name
+	}
+	return names
+}
+
 // Credentials holds the secrets needed to authenticate with the LFX
 // platform: the long-lived Auth0 refresh token, and an optional cached
 // access token with its expiry.
@@ -94,10 +175,51 @@ func (c Credentials) ValidAccessToken() bool {
 
 // DeviceState holds non-sensitive information persisted between CLI
 // invocations so that commands like `lfx auth token` don't need to
-// re-specify the IdP domain used at login.
+// re-specify the environment, IdP domain, or audience used at login.
+//
+// Note: this deliberately does not include a persistent "device ID". One
+// was considered (see LFXV2-2515/LFXV2-2509 discussion) on the assumption
+// that `gh` uses one as part of its OAuth device flow, but `gh`'s
+// `~/.local/state/gh/device-id` is actually just an anonymous telemetry
+// identifier (see `internal/telemetry.getOrCreateDeviceID` in
+// github.com/cli/cli) -- it plays no role in the OAuth device
+// authorization grant and isn't sent to GitHub's API. Since the LFX CLI
+// has no telemetry pipeline, and Auth0's device flow has no concept of a
+// device ID at all, there's nothing here for one to do. Revisit if/when
+// opt-in CLI telemetry is added.
 type DeviceState struct {
-	DeviceID  string `json:"device_id"`
 	IDPDomain string `json:"idp_domain,omitempty"`
+	// Environment is the `--env` value used at login (prod, staging, or
+	// development), determining which compiled-in client ID is used to
+	// refresh the access token.
+	Environment string `json:"environment,omitempty"`
+	// Audience is the `--audience` value used at login. Auth0's
+	// refresh_token grant automatically ties the refreshed access token
+	// to the audience it was originally issued for, so this isn't sent
+	// back on refresh; it's persisted purely for display in
+	// `lfx auth status`.
+	Audience string `json:"audience,omitempty"`
+	// Insecure records whether `--insecure-storage` was passed at login,
+	// i.e. whether Credentials live in the plain-file backend rather than
+	// the system keychain. state.json itself is not namespaced by
+	// backend (both share the same file), so callers must check this
+	// against the invocation's own --insecure-storage flag before trusting
+	// the rest of the state: without that check, logging into one backend
+	// silently overwrites the metadata (env, IdP domain) that the other
+	// backend's still-present credentials depend on.
+	Insecure bool `json:"insecure,omitempty"`
+	// Backend records the keyring.BackendType (e.g. "keychain") pinned via
+	// --backend at login, or "" if the backend was left to
+	// keyring.Open's own auto-detection. Unlike Insecure, an empty value
+	// here is not itself trustworthy: keyring.Open can silently select a
+	// *different* system backend across invocations (e.g. Secret Service
+	// is reachable in one shell session but not another, falling back to
+	// pass), so an unpinned login can't be protected against later landing
+	// on a different backend with the same state.json. Once a backend has
+	// been pinned, though, callers must require the same --backend
+	// value on every later command against this state, the same way
+	// Insecure is enforced.
+	Backend string `json:"backend,omitempty"`
 }
 
 // Store is the credential storage abstraction used by the auth commands.
@@ -117,6 +239,9 @@ type Store interface {
 	// LoadDeviceState returns the persisted device state, or ErrNotFound if
 	// none has been saved.
 	LoadDeviceState() (DeviceState, error)
+	// DeleteDeviceState removes any persisted device state. It is a no-op
+	// if none exists.
+	DeleteDeviceState() error
 }
 
 // Options configures a Store returned by New.
@@ -132,6 +257,13 @@ type Options struct {
 	// leave empty to use $XDG_STATE_HOME/lfx-cli (or ~/.local/state/lfx-cli
 	// if $XDG_STATE_HOME is unset).
 	StateDir string
+
+	// Backend pins keyring.Open to a single system backend (e.g.
+	// "keychain"; see AvailableBackends for the valid values on this OS),
+	// instead of letting it probe systemBackends in priority order and
+	// silently use whichever one currently opens. Ignored when Insecure is
+	// set. Leave empty to keep the previous auto-detecting behavior.
+	Backend string
 }
 
 // secretsBackend abstracts over the two ways Credentials can be persisted:
@@ -163,6 +295,18 @@ func New(opts Options) (Store, error) {
 			path: filepath.Join(stateDir, insecureCredentialsFileName),
 		}
 	} else {
+		allowedBackends := systemBackends
+		if opts.Backend != "" {
+			bt := keyring.BackendType(opts.Backend)
+			if !isAvailableBackend(bt) {
+				return nil, fmt.Errorf(
+					"credstore: unknown or unsupported --backend %q on this OS (available: %s)",
+					opts.Backend, strings.Join(availableBackendNames(), ", "),
+				)
+			}
+			allowedBackends = []keyring.BackendType{bt}
+		}
+
 		kr, err := keyring.Open(keyring.Config{
 			ServiceName: serviceName,
 			// The pass backend namespaces entries via PassPrefix, not
@@ -170,7 +314,7 @@ func New(opts Options) (Store, error) {
 			// stored as a top-level "credentials" entry in the user's
 			// password store, risking collisions with unrelated tools.
 			PassPrefix:               serviceName,
-			AllowedBackends:          systemBackends,
+			AllowedBackends:          allowedBackends,
 			KeychainTrustApplication: true,
 		})
 		if err != nil {
@@ -295,6 +439,18 @@ func (s *store) LoadDeviceState() (DeviceState, error) {
 	}
 
 	return state, nil
+}
+
+// DeleteDeviceState implements Store.
+func (s *store) DeleteDeviceState() error {
+	path := filepath.Join(s.stateDir, stateFileName)
+
+	err := os.Remove(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("credstore: delete device state: %w", err)
+	}
+
+	return nil
 }
 
 // keyringSecrets is a secretsBackend that stores Credentials in a real

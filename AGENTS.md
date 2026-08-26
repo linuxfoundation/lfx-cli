@@ -46,15 +46,11 @@ lfx-cli/
 
 ### Current State
 
-This repo is under active scaffolding. Auth and API commands are currently
-stubs; real implementations land in follow-on work:
-
-- `lfx auth login` / `status` / `logout`
-- `lfx auth token`
-- `lfx api`
-
-Credential storage (system keychain via `99designs/keyring`) and the Auth0
-CIMD client are tracked separately.
+`lfx auth login` / `status` / `token` / `logout` are fully implemented,
+including the Auth0 Device Code flow, refresh-token exchange, and
+credential storage (system keychain via `99designs/keyring`, with a plain
+`--insecure-storage` fallback). `lfx api` remains a stub; its
+implementation lands in follow-on work.
 
 **No container build**: this project produces binary artifacts only,
 distributed via GitHub Releases, the `install.sh` curl-style installer
@@ -150,16 +146,17 @@ func NewExampleCommand() *cli.Command {
 
 ### Package Comments
 
-Every file in a package must start with the same `// Package <name> ...`
-doc comment immediately above the `package` declaration. Revive's
-`package-comments` rule itself only requires one such comment per package,
-but MegaLinter's `GO_REVIVE` linter defaults to `GO_REVIVE_CLI_LINT_MODE:
-list_of_files`, invoking revive with a flat list of files instead of
-`./...`. Under that mode revive loses per-package grouping and flags any
-file lacking the comment, so duplicating the identical comment across
-every file in a package is a required workaround for how MegaLinter calls
-revive here, not an inherent revive requirement. Do not vary the wording
-between files in the same package.
+Every non-test (`*.go`, not `*_test.go`) file in a package must start with
+the same `// Package <name> ...` doc comment immediately above the
+`package` declaration. Revive's `package-comments` rule itself only
+requires one such comment per package, but MegaLinter's `GO_REVIVE` linter
+defaults to `GO_REVIVE_CLI_LINT_MODE: list_of_files`, invoking revive with
+a flat list of files instead of `./...`. Under that mode revive loses
+per-package grouping and flags any non-test file lacking the comment, so
+duplicating the identical comment across every non-test file in a package
+is a required workaround for how MegaLinter calls revive here, not an
+inherent revive requirement. Do not vary the wording between files in the
+same package.
 
 ## Documentation Generation
 
@@ -230,9 +227,51 @@ release binaries may be missing even though the GitHub Release exists.
 
 1. **Add Commands**: Create new commands in `internal/commands/` following
    the established pattern
-2. **Package Comments**: Every new `*.go` file must include the same
-   `// Package <name> ...` doc comment as the rest of its package
+2. **Package Comments**: Every new non-test `*.go` file must include the
+   same `// Package <name> ...` doc comment as the rest of its package
+   (see "Package Comments" above; `*_test.go` files are exempt)
 3. **Dependencies**: Run `go get -u ./... && go mod tidy` before every PR to
-   keep dependencies current
-4. **Code Quality**: Run `make check` before commits
-5. **Documentation**: Update README.md for user-facing changes
+   keep dependencies current. This upgrades module dependencies only, not the
+   Go toolchain itself (`go.mod`'s `go` directive) -- see the toolchain policy
+   below before touching that.
+4. **Go toolchain version**: Freely bump `go.mod`'s `go` directive to the
+   latest available *patch* release (e.g. `1.X.Y` → `1.X.{Y+1}`) to pick up
+   security fixes. Do **not** bump the *minor* version (e.g. `1.X.x` →
+   `1.{X+1}.x`) unless the user explicitly asks for it, **and** you've
+   validated it against the Go version MegaLinter itself bundles --
+   MegaLinter runs several linters (e.g. `golangci-lint`) against its own
+   bundled Go version, and a `go.mod` directive newer than that bundled
+   version breaks those checks.
+
+   To find MegaLinter's bundled Go version:
+
+   ```bash
+   # 1. Find the MegaLinter flavor and pinned version tag used in CI.
+   grep -A1 'oxsecurity/megalinter' .github/workflows/*.yml
+   # e.g. "uses: oxsecurity/megalinter/flavors/<flavor>@<sha>  # <tag>"
+
+   # 2. Fetch that flavor's Dockerfile and read its GO_ALPINE_VERSION (or
+   #    GO_IMAGE_VERSION) build arg.
+   curl -s "https://raw.githubusercontent.com/oxsecurity/megalinter/<tag>/flavors/<flavor>/Dockerfile" \
+     | grep -i 'GO_ALPINE_VERSION\|GO_IMAGE_VERSION'
+   ```
+
+   `go.mod`'s `go` directive must never exceed that bundled version. Staying
+   one minor version behind it (rather than matching its minor *and* patch
+   exactly) leaves room to always take the latest patch release for security
+   fixes without ever being blocked by MegaLinter's own bundled patch version
+   lagging behind a newly disclosed vulnerability.
+
+   There's no built-in `go` subcommand to look up the latest patch release
+   for a given minor version -- query the official `go.dev/dl` JSON feed
+   instead:
+
+   ```bash
+   # Find the latest patch release for the minor version pinned in go.mod.
+   MINOR=$(grep '^go ' go.mod | awk '{print $2}' | cut -d. -f1,2)
+   curl -s "https://go.dev/dl/?mode=json&include=all" \
+     | jq -r --arg m "go${MINOR}." '.[].version | select(startswith($m))' \
+     | sort -V | tail -1
+   ```
+5. **Code Quality**: Run `make check` before commits
+6. **Documentation**: Update README.md for user-facing changes
