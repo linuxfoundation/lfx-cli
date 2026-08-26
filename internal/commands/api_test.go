@@ -40,11 +40,16 @@ func TestCoerceFieldValue(t *testing.T) {
 		{name: "true", value: "true", want: true},
 		{name: "false", value: "false", want: false},
 		{name: "null", value: "null", want: nil},
-		{name: "integer", value: "42", want: float64(42)},
-		{name: "float", value: "3.14", want: 3.14},
+		{name: "integer", value: "42", want: json.Number("42")},
+		{name: "float", value: "3.14", want: json.Number("3.14")},
 		{name: "plain string", value: "hello", want: "hello"},
 		{name: "numeric-looking but not fully numeric", value: "42abc", want: "42abc"},
 		{name: "empty string", value: "", want: ""},
+		{name: "NaN stays a string", value: "NaN", want: "NaN"},
+		{name: "Infinity stays a string", value: "Infinity", want: "Infinity"},
+		{name: "hex float stays a string", value: "0x1p2", want: "0x1p2"},
+		{name: "leading zero stays a string (not valid JSON number)", value: "042", want: "042"},
+		{name: "large integer preserves precision", value: "9007199254740993", want: json.Number("9007199254740993")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

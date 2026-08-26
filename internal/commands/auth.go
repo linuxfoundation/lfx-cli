@@ -43,35 +43,41 @@ const (
 	audienceFlagName  = "audience"
 )
 
+// CredentialStoreFlags are the --insecure-storage and --backend flags
+// used by credStoreFromCommand. They are registered on the root `lfx`
+// command in cmd/lfx/main.go (rather than per-subcommand) so they're
+// inherited via cmd.Bool/cmd.String without redeclaration wherever
+// they're needed -- both the auth-specific commands and API/method calls.
+var CredentialStoreFlags = []cli.Flag{
+	&cli.BoolFlag{
+		Name:  insecureStorageFlagName,
+		Usage: "Store & retrieve credentials in a plain (unencrypted) file instead of the system backend",
+	},
+	&cli.StringFlag{
+		Name:  backendFlagName,
+		Usage: "Pin credential storage to a specific system backend (see `lfx auth backends`); mutually exclusive with --insecure-storage",
+	},
+}
+
 // scopes requested during the device code flow. offline_access is required
 // to receive a refresh token; the rest identify the user for `auth status`.
 var loginScopes = []string{"openid", "profile", "email", "offline_access"}
 
 // NewAuthCommand builds the `lfx auth` command group with its subcommands.
 //
-// The --insecure-storage and --backend flags are shared by all
-// subcommands (they are not declared as "Local" flags, so urfave/cli
-// resolves them for subcommand actions via cmd.Bool/cmd.String).
-// --insecure-storage controls whether credentials bypass the system
-// backend in favor of credstore's plain (unencrypted) file fallback, e.g.
-// for headless/CI use. --backend pins credential storage to a
-// single system backend rather than letting keyring.Open silently pick
-// whichever one currently opens; see credstore.DeviceState.Backend for why
-// that matters once a login has pinned one.
+// --insecure-storage and --backend (registered on the root `lfx` command;
+// see CredentialStoreFlags) control credential storage for all
+// subcommands here. --insecure-storage controls whether credentials
+// bypass the system backend in favor of credstore's plain (unencrypted)
+// file fallback, e.g. for headless/CI use. --backend pins credential
+// storage to a single system backend rather than letting keyring.Open
+// silently pick whichever one currently opens; see
+// credstore.DeviceState.Backend for why that matters once a login has
+// pinned one.
 func NewAuthCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "auth",
 		Usage: "Manage authentication with the LFX platform",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{
-				Name:  insecureStorageFlagName,
-				Usage: "Store credentials in a plain (unencrypted) file instead of the system backend",
-			},
-			&cli.StringFlag{
-				Name:  backendFlagName,
-				Usage: "Pin credential storage to a specific system backend (see `lfx auth backends`); mutually exclusive with --insecure-storage",
-			},
-		},
 		Commands: []*cli.Command{
 			newAuthLoginCommand(),
 			newAuthTokenCommand(),

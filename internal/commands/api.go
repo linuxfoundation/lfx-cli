@@ -13,7 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strconv"
+	"regexp"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -89,10 +89,10 @@ func NewAPICommand() *cli.Command {
 }
 
 func runAPI(ctx context.Context, cmd *cli.Command) error {
-	path := cmd.Args().First()
-	if path == "" {
+	if cmd.Args().Len() != 1 {
 		return errors.New("usage: lfx api <path>")
 	}
+	path := cmd.Args().First()
 
 	method := strings.ToUpper(cmd.String(apiMethodFlagName))
 	if !cmd.IsSet(apiMethodFlagName) && apiHasExplicitBody(cmd) {
@@ -167,8 +167,10 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 	fmt.Println(string(output))
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		fmt.Fprintf(os.Stderr, "HTTP %d\n", resp.StatusCode)
-		return cli.Exit("", 1)
+		// Use cli.Exit's message (rather than writing directly to
+		// stderr) so main's generic `Error: <err>` handling only emits
+		// one diagnostic line instead of two.
+		return cli.Exit(fmt.Sprintf("HTTP %d", resp.StatusCode), 1)
 	}
 
 	return nil
@@ -251,9 +253,20 @@ func apiRequestBody(cmd *cli.Command) (body []byte, contentType string, err erro
 	return nil, "", nil
 }
 
+// jsonNumberPattern matches valid JSON number syntax (RFC 8259), which is
+// stricter than Go's strconv.ParseFloat: it rejects "NaN", "Inf", and
+// hexadecimal floats (e.g. "0x1p2"), all of which ParseFloat accepts but
+// which are not valid JSON numbers and would otherwise either fail
+// json.Marshal outright or silently coerce a value the user likely meant
+// as a literal string.
+var jsonNumberPattern = regexp.MustCompile(`^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$`)
+
 // coerceFieldValue applies gh-style type coercion to a --field value:
-// "true"/"false" become booleans, "null" becomes nil, and numeric strings
-// become JSON numbers. Everything else stays a string.
+// "true"/"false" become booleans, "null" becomes nil, and values matching
+// JSON number syntax become json.Number (preserving the original digits
+// verbatim in the request body, rather than round-tripping through
+// float64 and silently losing precision for integers beyond 2^53).
+// Everything else stays a string.
 func coerceFieldValue(value string) any {
 	switch value {
 	case "true":
@@ -263,8 +276,8 @@ func coerceFieldValue(value string) any {
 	case "null":
 		return nil
 	}
-	if n, err := strconv.ParseFloat(value, 64); err == nil {
-		return n
+	if jsonNumberPattern.MatchString(value) {
+		return json.Number(value)
 	}
 	return value
 }

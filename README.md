@@ -52,11 +52,11 @@ Service reachable in one shell session but not another); pass
 `--backend` to pin it to one explicitly (see `lfx auth backends`
 for the available names). Once a login has pinned a backend, later commands
 must pass the same `--backend` value. Pass `--insecure-storage` to
-any `auth` subcommand to instead store credentials in a plain, unencrypted,
-owner-only file, at the cost of weaker protection for the stored tokens. On
-Windows, this owner-only mode relies on inherited directory permissions
-rather than a real ACL, since Go's `Chmod(0600)` maps to the read-only
-attribute there rather than restricting access to the current user.
+instead store credentials in a plain, unencrypted, owner-only file, at the
+cost of weaker protection for the stored tokens. On Windows, this
+owner-only mode relies on inherited directory permissions rather than a
+real ACL, since Go's `Chmod(0600)` maps to the read-only attribute there
+rather than restricting access to the current user.
 
 ```bash
 lfx auth login --insecure-storage
