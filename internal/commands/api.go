@@ -117,6 +117,9 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	baseURL := cmd.String(apiHostnameFlagName)
+	if cmd.IsSet(apiHostnameFlagName) && baseURL == "" {
+		return errors.New("--hostname was set to an empty value; omit the flag to use the login audience instead")
+	}
 	if baseURL == "" {
 		baseURL = audience
 	}
@@ -160,7 +163,17 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	// Don't auto-follow redirects: http.DefaultClient can preserve the
+	// Authorization header across a same-host redirect even when it
+	// downgrades from HTTPS to HTTP, which would bypass
+	// apiRequireHTTPS and leak the bearer token. A 3xx response is
+	// instead reported like any other non-2xx status below.
+	client := &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
