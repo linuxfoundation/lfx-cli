@@ -41,7 +41,7 @@ lfx auth logout
 # Make an authenticated call to an LFX platform API endpoint.
 lfx api '/my-grants?v=1&object_type=projects'
 lfx api /projects --field name=example   # auto-promotes to POST
-lfx api -X PUT /projects/123 --input - -H "If-Match: <ver>" < input.json
+lfx api -X PUT /projects/123 --input - -H "If-Match: <ver>" < input.json  # Content-Type: application/json is added automatically
 ```
 
 Credentials (refresh token, cached access token) are stored in your

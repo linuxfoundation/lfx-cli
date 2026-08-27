@@ -63,7 +63,7 @@ func NewAPICommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  apiInputFlagName,
-				Usage: "Read the request body from a file, or '-' for stdin",
+				Usage: "Read the request body from a file, or '-' for stdin (Content-Type defaults to application/json for POST/PUT unless overridden with -H)",
 			},
 			&cli.StringSliceFlag{
 				Name:    apiFieldFlagName,
@@ -148,6 +148,13 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		}
 		req.Header.Set(strings.TrimSpace(key), strings.TrimSpace(value))
 	}
+	if len(body) > 0 && req.Header.Get("Content-Type") == "" && (method == http.MethodPost || method == http.MethodPut) {
+		// LFX platform APIs are overwhelmingly JSON, so default to that
+		// for any POST/PUT body unless the caller set Content-Type
+		// explicitly (via --field/--raw-field, which already produce
+		// JSON and set this above, or via -H, handled just above).
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -164,7 +171,13 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 	if query := cmd.String(apiQueryFlagName); query != "" {
 		output = []byte(gjson.GetBytes(respBody, query).String())
 	}
-	fmt.Println(string(output))
+	// Write the response body verbatim rather than through fmt.Println,
+	// which would append an extra newline byte not present in the
+	// original response, corrupting raw/binary output and any files
+	// produced by redirecting `lfx api`'s stdout.
+	if _, err := os.Stdout.Write(output); err != nil {
+		return fmt.Errorf("write response body: %w", err)
+	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// Use cli.Exit's message (rather than writing directly to
