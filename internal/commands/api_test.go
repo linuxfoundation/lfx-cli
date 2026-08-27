@@ -91,6 +91,34 @@ func TestAPIJoinURL(t *testing.T) {
 	})
 }
 
+func TestAPIRequireHTTPS(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawURL  string
+		wantErr bool
+	}{
+		{name: "https", rawURL: "https://api.example.com", wantErr: false},
+		{name: "https with port", rawURL: "https://api.example.com:8443", wantErr: false},
+		{name: "http rejected", rawURL: "http://api.example.com", wantErr: true},
+		{name: "http localhost allowed", rawURL: "http://localhost:8080", wantErr: false},
+		{name: "http 127.0.0.1 allowed", rawURL: "http://127.0.0.1:8080", wantErr: false},
+		{name: "http ::1 allowed", rawURL: "http://[::1]:8080", wantErr: false},
+		{name: "http on non-loopback hostname resembling localhost rejected", rawURL: "http://localhost.attacker.example", wantErr: true},
+		{name: "invalid URL rejected", rawURL: "http://[::1", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := apiRequireHTTPS(tc.rawURL)
+			if tc.wantErr && err == nil {
+				t.Fatalf("apiRequireHTTPS(%q): got nil error, want error", tc.rawURL)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("apiRequireHTTPS(%q): got error %v, want nil", tc.rawURL, err)
+			}
+		})
+	}
+}
+
 func TestAPIRequestBodyFields(t *testing.T) {
 	newAPITestCommand(t, []string{
 		"--field", "name=example",

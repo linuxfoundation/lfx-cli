@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -122,6 +123,9 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 	if baseURL == "" {
 		return errors.New("no API base URL available; log in with `lfx auth login` or pass --hostname")
 	}
+	if err := apiRequireHTTPS(baseURL); err != nil {
+		return err
+	}
 
 	body, contentType, err := apiRequestBody(cmd)
 	if err != nil {
@@ -162,21 +166,24 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("read response body: %w", err)
-	}
-
-	output := respBody
 	if query := cmd.String(apiQueryFlagName); query != "" {
-		output = []byte(gjson.GetBytes(respBody, query).String())
-	}
-	// Write the response body verbatim rather than through fmt.Println,
-	// which would append an extra newline byte not present in the
-	// original response, corrupting raw/binary output and any files
-	// produced by redirecting `lfx api`'s stdout.
-	if _, err := os.Stdout.Write(output); err != nil {
-		return fmt.Errorf("write response body: %w", err)
+		// --query needs the whole body in memory to run gjson against
+		// it, so buffer and filter before writing.
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("read response body: %w", err)
+		}
+		output := []byte(gjson.GetBytes(respBody, query).String())
+		if _, err := os.Stdout.Write(output); err != nil {
+			return fmt.Errorf("write response body: %w", err)
+		}
+	} else {
+		// Stream the body straight through rather than buffering it
+		// all in memory first, since this command explicitly supports
+		// redirecting its output for large or binary responses.
+		if _, err := io.Copy(os.Stdout, resp.Body); err != nil {
+			return fmt.Errorf("write response body: %w", err)
+		}
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -302,4 +309,24 @@ func apiJoinURL(base, path string) (string, error) {
 		return "", errors.New("empty base URL")
 	}
 	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/"), nil
+}
+
+// apiRequireHTTPS rejects base URLs that would send the bearer token over
+// a non-HTTPS connection, since the request's Authorization header is
+// otherwise transmitted in cleartext. Loopback hosts are exempted, since
+// http:// there is a common and low-risk way to point --hostname at a
+// local mock server for debugging.
+func apiRequireHTTPS(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid base URL %q: %w", rawURL, err)
+	}
+	if parsed.Scheme == "https" {
+		return nil
+	}
+	switch parsed.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return nil
+	}
+	return fmt.Errorf("refusing to send credentials to non-HTTPS URL %q (use an https:// --hostname, or localhost/127.0.0.1 for local debugging)", rawURL)
 }
