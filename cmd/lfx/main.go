@@ -38,6 +38,7 @@ func main() {
 		Usage:                 "Authenticate with and call the LFX platform APIs",
 		Version:               version,
 		EnableShellCompletion: true,
+		Flags:                 commands.CredentialStoreFlags,
 		Commands: []*cli.Command{
 			commands.NewAuthCommand(),
 			commands.NewAPICommand(),
