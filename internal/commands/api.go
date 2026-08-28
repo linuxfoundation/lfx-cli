@@ -342,33 +342,19 @@ func coerceFieldValue(value string) any {
 	return value
 }
 
-// apiJoinURL joins base and path into a single URL. path is parsed as a
-// URL reference first so its query string and fragment (e.g.
-// "/projects?limit=10") are preserved rather than being percent-encoded
-// into the path by url.JoinPath, which only understands its second
-// argument as a pathname. Only the parsed path component is joined with
-// base -- url.JoinPath percent-encodes path segments and resolves
-// traversal components such as "../", which matters since path can come
-// from user input and base can come from a user-controlled --hostname.
+// apiJoinURL joins base and path into a single URL, ensuring exactly one
+// slash separates them. path is passed through unmodified (aside from a
+// leading-slash trim) rather than parsed/re-escaped: base is already
+// trusted (the login audience, or --hostname, which is gated to
+// development-environment logins in runAPI) and path is meant to be sent
+// verbatim, including its query string, exactly as the caller wrote it --
+// a URL-parsing round trip risks subtly rewriting it (see the query
+// string and escaped-slash regressions caught in review).
 func apiJoinURL(base, path string) (string, error) {
 	if base == "" {
 		return "", errors.New("empty base URL")
 	}
-	ref, err := url.Parse(path)
-	if err != nil {
-		return "", fmt.Errorf("invalid path %q: %w", path, err)
-	}
-	joined, err := url.JoinPath(base, ref.Path)
-	if err != nil {
-		return "", err
-	}
-	full, err := url.Parse(joined)
-	if err != nil {
-		return "", err
-	}
-	full.RawQuery = ref.RawQuery
-	full.Fragment = ref.Fragment
-	return full.String(), nil
+	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/"), nil
 }
 
 // apiRequireHTTPS rejects base URLs that would send the bearer token over
@@ -381,7 +367,7 @@ func apiRequireHTTPS(rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("invalid base URL %q: %w", rawURL, err)
 	}
-	if parsed.Scheme == "https" {
+	if strings.EqualFold(parsed.Scheme, "https") {
 		return nil
 	}
 	switch parsed.Hostname() {

@@ -73,7 +73,7 @@ func TestAPIJoinURL(t *testing.T) {
 		{name: "both slashes", base: "https://api.example.com/", path: "/projects", want: "https://api.example.com/projects"},
 		{name: "query string preserved", base: "https://api.example.com", path: "/my-grants?v=1&object_type=projects", want: "https://api.example.com/my-grants?v=1&object_type=projects"},
 		{name: "fragment preserved", base: "https://api.example.com", path: "/projects#frag", want: "https://api.example.com/projects#frag"},
-		{name: "dot-segments resolved", base: "https://api.example.com", path: "../secret", want: "https://api.example.com/secret"},
+		{name: "encoded slash preserved verbatim", base: "https://api.example.com", path: "/objects/a%2Fb", want: "https://api.example.com/objects/a%2Fb"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -101,6 +101,7 @@ func TestAPIRequireHTTPS(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "https", rawURL: "https://api.example.com", wantErr: false},
+		{name: "https uppercase scheme", rawURL: "HTTPS://api.example.com", wantErr: false},
 		{name: "https with port", rawURL: "https://api.example.com:8443", wantErr: false},
 		{name: "http rejected", rawURL: "http://api.example.com", wantErr: true},
 		{name: "http localhost allowed", rawURL: "http://localhost:8080", wantErr: false},
