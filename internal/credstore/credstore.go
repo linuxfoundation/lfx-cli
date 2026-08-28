@@ -178,8 +178,8 @@ func (c Credentials) ValidAccessToken() bool {
 // re-specify the environment, IdP domain, or audience used at login.
 //
 // Note: this deliberately does not include a persistent "device ID". One
-// was considered (see LFXV2-2515/LFXV2-2509 discussion) on the assumption
-// that `gh` uses one as part of its OAuth device flow, but `gh`'s
+// was considered on the assumption that `gh` uses one as part of its
+// OAuth device flow, but `gh`'s
 // `~/.local/state/gh/device-id` is actually just an anonymous telemetry
 // identifier (see `internal/telemetry.getOrCreateDeviceID` in
 // github.com/cli/cli) -- it plays no role in the OAuth device

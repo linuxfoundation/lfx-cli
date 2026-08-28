@@ -15,18 +15,15 @@ import (
 )
 
 // newTestCommand builds a *cli.Command with the --insecure-storage and
-// --backend flags registered (as newAuthLoginCommand and friends
-// do), parses args against it, and returns the parsed *cli.Command handed
-// to fn's Action so tests can read flag values the way the real commands
-// do.
+// --backend flags registered (as the root `lfx` command does via
+// CredentialStoreFlags), parses args against it, and returns the parsed
+// *cli.Command handed to fn's Action so tests can read flag values the
+// way the real commands do.
 func newTestCommand(t *testing.T, args []string, fn func(cmd *cli.Command)) {
 	t.Helper()
 	cmd := &cli.Command{
-		Name: "test",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: insecureStorageFlagName},
-			&cli.StringFlag{Name: backendFlagName},
-		},
+		Name:  "test",
+		Flags: CredentialStoreFlags,
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			fn(cmd)
 			return nil

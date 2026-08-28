@@ -43,35 +43,41 @@ const (
 	audienceFlagName  = "audience"
 )
 
+// CredentialStoreFlags are the --insecure-storage and --backend flags
+// used by credStoreFromCommand. They are registered on the root `lfx`
+// command in cmd/lfx/main.go (rather than per-subcommand) so they're
+// inherited via cmd.Bool/cmd.String without redeclaration wherever
+// they're needed -- both the auth-specific commands and API/method calls.
+var CredentialStoreFlags = []cli.Flag{
+	&cli.BoolFlag{
+		Name:  insecureStorageFlagName,
+		Usage: "Store & retrieve credentials in a plain (unencrypted) file instead of the system backend",
+	},
+	&cli.StringFlag{
+		Name:  backendFlagName,
+		Usage: "Pin credential storage to a specific system backend (see `lfx auth backends`); mutually exclusive with --insecure-storage",
+	},
+}
+
 // scopes requested during the device code flow. offline_access is required
 // to receive a refresh token; the rest identify the user for `auth status`.
 var loginScopes = []string{"openid", "profile", "email", "offline_access"}
 
 // NewAuthCommand builds the `lfx auth` command group with its subcommands.
 //
-// The --insecure-storage and --backend flags are shared by all
-// subcommands (they are not declared as "Local" flags, so urfave/cli
-// resolves them for subcommand actions via cmd.Bool/cmd.String).
-// --insecure-storage controls whether credentials bypass the system
-// backend in favor of credstore's plain (unencrypted) file fallback, e.g.
-// for headless/CI use. --backend pins credential storage to a
-// single system backend rather than letting keyring.Open silently pick
-// whichever one currently opens; see credstore.DeviceState.Backend for why
-// that matters once a login has pinned one.
+// --insecure-storage and --backend (registered on the root `lfx` command;
+// see CredentialStoreFlags) control credential storage for all
+// subcommands here. --insecure-storage controls whether credentials
+// bypass the system backend in favor of credstore's plain (unencrypted)
+// file fallback, e.g. for headless/CI use. --backend pins credential
+// storage to a single system backend rather than letting keyring.Open
+// silently pick whichever one currently opens; see
+// credstore.DeviceState.Backend for why that matters once a login has
+// pinned one.
 func NewAuthCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "auth",
 		Usage: "Manage authentication with the LFX platform",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{
-				Name:  insecureStorageFlagName,
-				Usage: "Store credentials in a plain (unencrypted) file instead of the system backend",
-			},
-			&cli.StringFlag{
-				Name:  backendFlagName,
-				Usage: "Pin credential storage to a specific system backend (see `lfx auth backends`); mutually exclusive with --insecure-storage",
-			},
-		},
 		Commands: []*cli.Command{
 			newAuthLoginCommand(),
 			newAuthTokenCommand(),
@@ -438,70 +444,85 @@ func newAuthTokenCommand() *cli.Command {
 		Name:  "token",
 		Usage: "Print a valid access token for the LFX platform",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			store, creds, found, err := loadStoredCredentials(cmd)
+			token, _, _, err := resolveAccessToken(ctx, cmd)
 			if err != nil {
 				return err
 			}
-			if !found {
-				return errors.New("not logged in; run `lfx auth login` first")
-			}
-
-			// Validate the persisted device state (insecure-storage and
-			// --backend pinning) before trusting or returning anything
-			// from creds, including the ValidAccessToken fast path below
-			// -- otherwise omitting a pinned --backend could still open
-			// some other auto-detected backend and print its cached
-			// token, defeating the pin.
-			_, domain, clientID, err := loadDeviceStateForBackend(store, cmd)
-			if err != nil {
-				return fmt.Errorf("load device state: %w", err)
-			}
-
-			if creds.ValidAccessToken() {
-				fmt.Println(creds.AccessToken)
-				return nil
-			}
-
-			if creds.RefreshToken == "" {
-				return errors.New("no refresh token available; run `lfx auth login` again")
-			}
-
-			cfg := &oauth2.Config{
-				ClientID: clientID,
-				Endpoint: oauth2.Endpoint{
-					DeviceAuthURL: "https://" + domain + "/oauth/device/code",
-					TokenURL:      "https://" + domain + "/oauth/token",
-					AuthStyle:     oauth2.AuthStyleInParams,
-				},
-			}
-
-			token, err := cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: creds.RefreshToken}).Token()
-			var retrieveErr *oauth2.RetrieveError
-			if errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "invalid_grant" {
-				return errors.New("session expired or revoked; run `lfx auth login` to log in again")
-			}
-			if err != nil {
-				return fmt.Errorf("refresh access token: %w", err)
-			}
-
-			refreshToken := token.RefreshToken
-			if refreshToken == "" {
-				// Auth0 may not rotate the refresh token on every
-				// exchange; keep the existing one in that case.
-				refreshToken = creds.RefreshToken
-			}
-			if err := store.SaveCredentials(credstore.Credentials{
-				RefreshToken:      refreshToken,
-				AccessToken:       token.AccessToken,
-				AccessTokenExpiry: token.Expiry,
-			}); err != nil {
-				return fmt.Errorf("save refreshed credentials: %w", err)
-			}
-
-			fmt.Println(token.AccessToken)
+			fmt.Println(token)
 			return nil
 		},
 	}
+}
+
+// resolveAccessToken returns a valid access token for the current login,
+// refreshing it (and persisting the refreshed credentials) if the cached
+// one is missing or expired. It also returns the audience and login
+// environment recorded at login time, so callers (e.g. `lfx api`) can use
+// the audience as their default API base URL and the environment to gate
+// features like --hostname to non-production logins. Both `lfx auth
+// token` and `lfx api` share this single code path so their refresh,
+// error, and credential-persistence behavior never drifts apart.
+func resolveAccessToken(ctx context.Context, cmd *cli.Command) (token, audience string, env authEnvironment, err error) {
+	store, creds, found, err := loadStoredCredentials(cmd)
+	if err != nil {
+		return "", "", "", err
+	}
+	if !found {
+		return "", "", "", errors.New("not logged in; run `lfx auth login` first")
+	}
+
+	// Validate the persisted device state (insecure-storage and
+	// --backend pinning) before trusting or returning anything from
+	// creds, including the ValidAccessToken fast path below -- otherwise
+	// omitting a pinned --backend could still open some other
+	// auto-detected backend and return its cached token, defeating the
+	// pin.
+	state, domain, clientID, err := loadDeviceStateForBackend(store, cmd)
+	if err != nil {
+		return "", "", "", fmt.Errorf("load device state: %w", err)
+	}
+
+	if creds.ValidAccessToken() {
+		return creds.AccessToken, state.Audience, authEnvironment(state.Environment), nil
+	}
+
+	if creds.RefreshToken == "" {
+		return "", "", "", errors.New("no refresh token available; run `lfx auth login` again")
+	}
+
+	cfg := &oauth2.Config{
+		ClientID: clientID,
+		Endpoint: oauth2.Endpoint{
+			DeviceAuthURL: "https://" + domain + "/oauth/device/code",
+			TokenURL:      "https://" + domain + "/oauth/token",
+			AuthStyle:     oauth2.AuthStyleInParams,
+		},
+	}
+
+	refreshed, err := cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: creds.RefreshToken}).Token()
+	var retrieveErr *oauth2.RetrieveError
+	if errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "invalid_grant" {
+		return "", "", "", errors.New("session expired or revoked; run `lfx auth login` to log in again")
+	}
+	if err != nil {
+		return "", "", "", fmt.Errorf("refresh access token: %w", err)
+	}
+
+	refreshToken := refreshed.RefreshToken
+	if refreshToken == "" {
+		// Auth0 may not rotate the refresh token on every exchange; keep
+		// the existing one in that case.
+		refreshToken = creds.RefreshToken
+	}
+	if err := store.SaveCredentials(credstore.Credentials{
+		RefreshToken:      refreshToken,
+		AccessToken:       refreshed.AccessToken,
+		AccessTokenExpiry: refreshed.Expiry,
+	}); err != nil {
+		return "", "", "", fmt.Errorf("save refreshed credentials: %w", err)
+	}
+
+	return refreshed.AccessToken, state.Audience, authEnvironment(state.Environment), nil
 }
 
 func newAuthStatusCommand() *cli.Command {
