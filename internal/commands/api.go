@@ -82,7 +82,7 @@ func NewAPICommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  apiHostnameFlagName,
-				Usage: "Override the LFX API base URL (advanced; independent of the IdP domain)",
+				Usage: "Override the LFX API base URL (advanced; independent of the IdP domain). Sends your bearer token to whatever HTTPS host you name here, so only point it at a trusted LFX endpoint.",
 			},
 		},
 		Action: runAPI,
