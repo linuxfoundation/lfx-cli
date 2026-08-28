@@ -135,12 +135,12 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	url, err := apiJoinURL(baseURL, path)
+	endpoint, err := apiJoinURL(baseURL, path)
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
@@ -153,6 +153,11 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		if !ok {
 			return fmt.Errorf("invalid --%s %q (expected 'key:value')", apiHeaderFlagName, h)
 		}
+		// Header.Set (rather than Add) is deliberate: it lets a
+		// repeated -H for the same key (e.g. an explicit
+		// "Authorization:" or "Content-Type:") cleanly override the
+		// value set above, at the cost of not accumulating multiple
+		// values for the same header name the way curl/gh api do.
 		req.Header.Set(strings.TrimSpace(key), strings.TrimSpace(value))
 	}
 	if len(body) > 0 && req.Header.Get("Content-Type") == "" && (method == http.MethodPost || method == http.MethodPut) {
@@ -177,7 +182,9 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if query := cmd.String(apiQueryFlagName); query != "" {
 		// --query needs the whole body in memory to run gjson against
@@ -187,6 +194,10 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 			return fmt.Errorf("read response body: %w", err)
 		}
 		output := []byte(gjson.GetBytes(respBody, query).String())
+		// Write output verbatim with no added trailing newline,
+		// matching `gh api -q` so a scalar result (e.g. a single
+		// field) can be captured cleanly by a shell command
+		// substitution without a stray newline.
 		if _, err := os.Stdout.Write(output); err != nil {
 			return fmt.Errorf("write response body: %w", err)
 		}
@@ -215,7 +226,7 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 // Used to decide whether the default --method should be promoted from GET;
 // see runAPI.
 func apiHasExplicitBody(cmd *cli.Command) bool {
-	return cmd.String(apiInputFlagName) != "" ||
+	return cmd.IsSet(apiInputFlagName) ||
 		len(cmd.StringSlice(apiFieldFlagName)) > 0 ||
 		len(cmd.StringSlice(apiRawFieldFlagName)) > 0
 }
@@ -315,13 +326,15 @@ func coerceFieldValue(value string) any {
 	return value
 }
 
-// apiJoinURL joins base and path into a single URL, ensuring exactly one
-// slash separates them.
+// apiJoinURL joins base and path into a single URL. Unlike a plain string
+// concatenation, url.JoinPath percent-encodes path segments and resolves
+// traversal components such as "../", which matters since path can come
+// from user input and base can come from a user-controlled --hostname.
 func apiJoinURL(base, path string) (string, error) {
 	if base == "" {
 		return "", errors.New("empty base URL")
 	}
-	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/"), nil
+	return url.JoinPath(base, path)
 }
 
 // apiRequireHTTPS rejects base URLs that would send the bearer token over
