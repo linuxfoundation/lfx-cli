@@ -122,12 +122,17 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 			return errors.New("--hostname was set to an empty value; omit the flag to use the login audience instead")
 		}
 		// --hostname sends the live bearer token to whatever host is
-		// named, so it's restricted to development-environment logins
-		// (`lfx auth login --env=development`) to limit the blast
-		// radius of a leaked or misdirected prod/staging token. This is
-		// a heuristic tied to how login is normally done (--env and
-		// --audience are set together), not a cryptographic guarantee
-		// about what the token itself is scoped to.
+		// named. The purpose of this restriction is to keep a prod or
+		// staging token -- the ones with real authority -- from being
+		// redirected to a third-party host at all; --hostname's actual
+		// use case (pointing at a local mock server or alternate
+		// deployment for advanced troubleshooting) only comes up in
+		// development anyway. Allowing it there is also independently
+		// safe: OAuth2 resource servers validate a token's issuer
+		// (`iss`), not just its audience, against the specific IdP(s)
+		// they trust, so even in the hypothetical where a development
+		// login held a token claiming the prod audience, prod would
+		// still reject it as issued by an untrusted IdP.
 		if env != envDevelopment {
 			return fmt.Errorf("--%s requires a development-environment login (run `lfx auth login --%s=%s`); the current login's environment is %q", apiHostnameFlagName, envFlagName, envDevelopment, env)
 		}

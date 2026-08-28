@@ -30,6 +30,16 @@ const (
 // since this CLI never calls the Auth0 Management API (only the device
 // code and token endpoints), there's no need to separately track the
 // underlying tenant name.
+//
+// `runAPI`'s --hostname gate (api.go) restricts redirecting the API base
+// URL to development-environment logins: the goal is to keep a prod or
+// staging token -- the ones with real authority -- from ever being sent
+// to a third-party host, since --hostname's troubleshooting use case only
+// comes up in development anyway. That restriction is also independently
+// safe, since each tenant here is a distinct OAuth2 issuer and resource
+// servers validate a token's issuer (`iss`), not just its audience: even
+// a development-issued token claiming the prod audience would still be
+// rejected by prod as untrusted.
 var authDomains = map[authEnvironment]string{
 	envProd:        "sso.linuxfoundation.org",
 	envStaging:     "linuxfoundation-staging.auth0.com",
