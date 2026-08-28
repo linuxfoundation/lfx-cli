@@ -82,7 +82,7 @@ func NewAPICommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  apiHostnameFlagName,
-				Usage: "Override the LFX API base URL (advanced; independent of the IdP domain). Sends your bearer token to whatever HTTPS host you name here, so only point it at a trusted LFX endpoint.",
+				Usage: "Override the LFX API base URL (advanced; independent of the IdP domain). Requires a development-environment login (`lfx auth login --env=development`).",
 			},
 		},
 		Action: runAPI,
@@ -111,14 +111,26 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("invalid --%s %q (must be one of GET, POST, PUT, DELETE)", apiMethodFlagName, method)
 	}
 
-	token, audience, err := resolveAccessToken(ctx, cmd)
+	token, audience, env, err := resolveAccessToken(ctx, cmd)
 	if err != nil {
 		return err
 	}
 
 	baseURL := cmd.String(apiHostnameFlagName)
-	if cmd.IsSet(apiHostnameFlagName) && baseURL == "" {
-		return errors.New("--hostname was set to an empty value; omit the flag to use the login audience instead")
+	if cmd.IsSet(apiHostnameFlagName) {
+		if baseURL == "" {
+			return errors.New("--hostname was set to an empty value; omit the flag to use the login audience instead")
+		}
+		// --hostname sends the live bearer token to whatever host is
+		// named, so it's restricted to development-environment logins
+		// (`lfx auth login --env=development`) to limit the blast
+		// radius of a leaked or misdirected prod/staging token. This is
+		// a heuristic tied to how login is normally done (--env and
+		// --audience are set together), not a cryptographic guarantee
+		// about what the token itself is scoped to.
+		if env != envDevelopment {
+			return fmt.Errorf("--%s requires a development-environment login (run `lfx auth login --%s=%s`); the current login's environment is %q", apiHostnameFlagName, envFlagName, envDevelopment, env)
+		}
 	}
 	if baseURL == "" {
 		baseURL = audience

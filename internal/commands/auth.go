@@ -444,7 +444,7 @@ func newAuthTokenCommand() *cli.Command {
 		Name:  "token",
 		Usage: "Print a valid access token for the LFX platform",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			token, _, err := resolveAccessToken(ctx, cmd)
+			token, _, _, err := resolveAccessToken(ctx, cmd)
 			if err != nil {
 				return err
 			}
@@ -456,18 +456,19 @@ func newAuthTokenCommand() *cli.Command {
 
 // resolveAccessToken returns a valid access token for the current login,
 // refreshing it (and persisting the refreshed credentials) if the cached
-// one is missing or expired. It also returns the audience recorded at
-// login time, so callers (e.g. `lfx api`) can use it as their default API
-// base URL. Both `lfx auth token` and `lfx api` share this single code
-// path so their refresh, error, and credential-persistence behavior never
-// drifts apart.
-func resolveAccessToken(ctx context.Context, cmd *cli.Command) (token, audience string, err error) {
+// one is missing or expired. It also returns the audience and login
+// environment recorded at login time, so callers (e.g. `lfx api`) can use
+// the audience as their default API base URL and the environment to gate
+// features like --hostname to non-production logins. Both `lfx auth
+// token` and `lfx api` share this single code path so their refresh,
+// error, and credential-persistence behavior never drifts apart.
+func resolveAccessToken(ctx context.Context, cmd *cli.Command) (token, audience string, env authEnvironment, err error) {
 	store, creds, found, err := loadStoredCredentials(cmd)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if !found {
-		return "", "", errors.New("not logged in; run `lfx auth login` first")
+		return "", "", "", errors.New("not logged in; run `lfx auth login` first")
 	}
 
 	// Validate the persisted device state (insecure-storage and
@@ -478,15 +479,15 @@ func resolveAccessToken(ctx context.Context, cmd *cli.Command) (token, audience 
 	// pin.
 	state, domain, clientID, err := loadDeviceStateForBackend(store, cmd)
 	if err != nil {
-		return "", "", fmt.Errorf("load device state: %w", err)
+		return "", "", "", fmt.Errorf("load device state: %w", err)
 	}
 
 	if creds.ValidAccessToken() {
-		return creds.AccessToken, state.Audience, nil
+		return creds.AccessToken, state.Audience, authEnvironment(state.Environment), nil
 	}
 
 	if creds.RefreshToken == "" {
-		return "", "", errors.New("no refresh token available; run `lfx auth login` again")
+		return "", "", "", errors.New("no refresh token available; run `lfx auth login` again")
 	}
 
 	cfg := &oauth2.Config{
@@ -501,10 +502,10 @@ func resolveAccessToken(ctx context.Context, cmd *cli.Command) (token, audience 
 	refreshed, err := cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: creds.RefreshToken}).Token()
 	var retrieveErr *oauth2.RetrieveError
 	if errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "invalid_grant" {
-		return "", "", errors.New("session expired or revoked; run `lfx auth login` to log in again")
+		return "", "", "", errors.New("session expired or revoked; run `lfx auth login` to log in again")
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("refresh access token: %w", err)
+		return "", "", "", fmt.Errorf("refresh access token: %w", err)
 	}
 
 	refreshToken := refreshed.RefreshToken
@@ -518,10 +519,10 @@ func resolveAccessToken(ctx context.Context, cmd *cli.Command) (token, audience 
 		AccessToken:       refreshed.AccessToken,
 		AccessTokenExpiry: refreshed.Expiry,
 	}); err != nil {
-		return "", "", fmt.Errorf("save refreshed credentials: %w", err)
+		return "", "", "", fmt.Errorf("save refreshed credentials: %w", err)
 	}
 
-	return refreshed.AccessToken, state.Audience, nil
+	return refreshed.AccessToken, state.Audience, authEnvironment(state.Environment), nil
 }
 
 func newAuthStatusCommand() *cli.Command {
