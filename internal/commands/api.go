@@ -248,15 +248,19 @@ func apiHasExplicitBody(cmd *cli.Command) bool {
 // --input vs. --field/--raw-field), falling back to stdin when none are
 // passed and stdin is piped (non-TTY).
 func apiRequestBody(cmd *cli.Command) (body []byte, contentType string, err error) {
+	inputSet := cmd.IsSet(apiInputFlagName)
 	input := cmd.String(apiInputFlagName)
 	fields := cmd.StringSlice(apiFieldFlagName)
 	rawFields := cmd.StringSlice(apiRawFieldFlagName)
 
-	if input != "" && (len(fields) > 0 || len(rawFields) > 0) {
+	if inputSet && (len(fields) > 0 || len(rawFields) > 0) {
 		return nil, "", fmt.Errorf("--%s cannot be combined with --%s or --%s", apiInputFlagName, apiFieldFlagName, apiRawFieldFlagName)
 	}
 
-	if input != "" {
+	if inputSet {
+		if input == "" {
+			return nil, "", fmt.Errorf("--%s was set to an empty value; omit the flag to read the body from stdin instead", apiInputFlagName)
+		}
 		if input == "-" {
 			data, err := io.ReadAll(os.Stdin)
 			if err != nil {
@@ -338,15 +342,33 @@ func coerceFieldValue(value string) any {
 	return value
 }
 
-// apiJoinURL joins base and path into a single URL. Unlike a plain string
-// concatenation, url.JoinPath percent-encodes path segments and resolves
+// apiJoinURL joins base and path into a single URL. path is parsed as a
+// URL reference first so its query string and fragment (e.g.
+// "/projects?limit=10") are preserved rather than being percent-encoded
+// into the path by url.JoinPath, which only understands its second
+// argument as a pathname. Only the parsed path component is joined with
+// base -- url.JoinPath percent-encodes path segments and resolves
 // traversal components such as "../", which matters since path can come
 // from user input and base can come from a user-controlled --hostname.
 func apiJoinURL(base, path string) (string, error) {
 	if base == "" {
 		return "", errors.New("empty base URL")
 	}
-	return url.JoinPath(base, path)
+	ref, err := url.Parse(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid path %q: %w", path, err)
+	}
+	joined, err := url.JoinPath(base, ref.Path)
+	if err != nil {
+		return "", err
+	}
+	full, err := url.Parse(joined)
+	if err != nil {
+		return "", err
+	}
+	full.RawQuery = ref.RawQuery
+	full.Fragment = ref.Fragment
+	return full.String(), nil
 }
 
 // apiRequireHTTPS rejects base URLs that would send the bearer token over

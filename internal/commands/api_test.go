@@ -71,6 +71,9 @@ func TestAPIJoinURL(t *testing.T) {
 		{name: "trailing slash on base", base: "https://api.example.com/", path: "projects", want: "https://api.example.com/projects"},
 		{name: "leading slash on path", base: "https://api.example.com", path: "/projects", want: "https://api.example.com/projects"},
 		{name: "both slashes", base: "https://api.example.com/", path: "/projects", want: "https://api.example.com/projects"},
+		{name: "query string preserved", base: "https://api.example.com", path: "/my-grants?v=1&object_type=projects", want: "https://api.example.com/my-grants?v=1&object_type=projects"},
+		{name: "fragment preserved", base: "https://api.example.com", path: "/projects#frag", want: "https://api.example.com/projects#frag"},
+		{name: "dot-segments resolved", base: "https://api.example.com", path: "../secret", want: "https://api.example.com/secret"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -197,6 +200,22 @@ func TestAPIRequestBodyInputRejectsCombiningWithFields(t *testing.T) {
 	newAPITestCommand(t, []string{"--input", "/dev/null", "--field", "name=example"}, func(cmd *cli.Command) {
 		if _, _, err := apiRequestBody(cmd); err == nil {
 			t.Fatal("apiRequestBody: got nil error, want error for --input combined with --field")
+		}
+	})
+}
+
+func TestAPIRequestBodyRejectsExplicitEmptyInput(t *testing.T) {
+	newAPITestCommand(t, []string{"--input="}, func(cmd *cli.Command) {
+		if _, _, err := apiRequestBody(cmd); err == nil {
+			t.Fatal("apiRequestBody: got nil error, want error for explicit empty --input=")
+		}
+	})
+}
+
+func TestAPIRequestBodyExplicitEmptyInputRejectsCombiningWithFields(t *testing.T) {
+	newAPITestCommand(t, []string{"--input=", "--field", "name=example"}, func(cmd *cli.Command) {
+		if _, _, err := apiRequestBody(cmd); err == nil {
+			t.Fatal("apiRequestBody: got nil error, want error for explicit empty --input= combined with --field")
 		}
 	})
 }
