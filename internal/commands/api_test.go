@@ -71,7 +71,7 @@ func TestAPIJoinURL(t *testing.T) {
 		{name: "trailing slash on base", base: "https://api.example.com/", path: "projects", want: "https://api.example.com/projects"},
 		{name: "leading slash on path", base: "https://api.example.com", path: "/projects", want: "https://api.example.com/projects"},
 		{name: "both slashes", base: "https://api.example.com/", path: "/projects", want: "https://api.example.com/projects"},
-		{name: "query string preserved", base: "https://api.example.com", path: "/my-grants?v=1&object_type=projects", want: "https://api.example.com/my-grants?v=1&object_type=projects"},
+		{name: "query string preserved", base: "https://api.example.com", path: "/my-grants?v=1&object_type=project", want: "https://api.example.com/my-grants?v=1&object_type=project"},
 		{name: "fragment preserved", base: "https://api.example.com", path: "/projects#frag", want: "https://api.example.com/projects#frag"},
 		{name: "encoded slash preserved verbatim", base: "https://api.example.com", path: "/objects/a%2Fb", want: "https://api.example.com/objects/a%2Fb"},
 	}
