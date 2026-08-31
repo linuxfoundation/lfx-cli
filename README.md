@@ -15,7 +15,19 @@ This downloads the correct prebuilt binary for your OS/architecture from the
 [Releases](https://github.com/linuxfoundation/lfx-cli/releases) page,
 verifies its checksum, and installs it to `/usr/local/bin` (or `~/.local/bin`
 if that's not writable). Set `LFX_CLI_VERSION` to pin a specific release, or
-`LFX_CLI_INSTALL_DIR` to override the install location.
+`LFX_CLI_INSTALL_DIR` to override the install location. This works out of
+the box on macOS and Linux, and on Windows under Git Bash or WSL.
+
+On native Windows (PowerShell), use `install.ps1` instead, since Windows has
+no `sh` interpreter by default:
+
+```powershell
+irm https://linuxfoundation.github.io/lfx-cli/install.ps1 | iex
+```
+
+This installs to `%LOCALAPPDATA%\lfx-cli\bin` by default (or
+`LFX_CLI_INSTALL_DIR` if set), and honors `LFX_CLI_VERSION` the same way as
+`install.sh`.
 
 Alternatively, install with Go:
 
