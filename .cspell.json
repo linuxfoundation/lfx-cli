@@ -1,6 +1,11 @@
 {
   "language": "en",
-  "dictionaries": ["companies", "filetypes", "fullstack", "softwareTerms"],
+  "dictionaries": [
+    "companies",
+    "filetypes",
+    "fullstack",
+    "softwareTerms"
+  ],
   "words": [
     "aquasecurity",
     "artipacked",
@@ -40,22 +45,23 @@
     "zizmor"
   ],
   "flagWords": [
-    "abort",
-    "abortion",
-    "blackhat",
-    "black-hat",
-    "whitehat",
-    "white-hat",
-    "cripple",
-    "crippled",
-    "master",
-    "slave",
-    "tribe",
-    "sanity-check",
-    "whitelist",
-    "white-list",
-    "blacklist",
-    "black-list"
+    "abort: cancel, end, fail, halt, stop, terminate",
+    "abortion: cancelation, ending, failure, halting, stopping, termination",
+    "blackhat: attacker, malicious",
+    "black-hat: attacker, malicious",
+    "whitehat: ethical, security, researcher",
+    "white-hat: ethical, security, researcher",
+    "cripple: disable, degrade, impact",
+    "crippled: disabled, degraded, impacted",
+    "grandfathered: legacy, exempted, preauthorized",
+    "master: controller, primary, main, leader, parent",
+    "slave: agent, replica, secondary, follower, child",
+    "tribe: squad, team, group",
+    "sanity-check: test, verify, validate",
+    "whitelist: allowlist",
+    "white-list: allow-list",
+    "blacklist: denylist",
+    "black-list: deny-list"
   ],
   "ignorePaths": [
     ".cspell.json",
@@ -68,7 +74,9 @@
   "languageSettings": [
     {
       "languageId": "markdown",
-      "ignoreRegExpList": ["/^\\s*```\\s*(mermaid)[\\s\\S]*?^\\s*```/gm"]
+      "ignoreRegExpList": [
+        "/^\\s*```\\s*(mermaid)[\\s\\S]*?^\\s*```/gm"
+      ]
     }
   ]
 }
