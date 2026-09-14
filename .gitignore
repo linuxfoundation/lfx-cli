@@ -119,4 +119,5 @@ docs/_build/
 site/
 
 # Lint files
-megalinter-reports
+# MegaLinter local-run report output.
+megalinter-reports/
