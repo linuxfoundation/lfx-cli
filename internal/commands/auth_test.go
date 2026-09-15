@@ -301,3 +301,73 @@ func TestStateMismatchReasonBackendPinMismatch(t *testing.T) {
 		}
 	})
 }
+
+func TestNormalizeEnvironment(t *testing.T) {
+	tests := []struct {
+		input string
+		want  authEnvironment
+	}{
+		// Canonical names pass through unchanged.
+		{"prod", envProd},
+		{"staging", envStaging},
+		{"development", envDevelopment},
+		// Production aliases.
+		{"production", envProd},
+		// Staging aliases.
+		{"stage", envStaging},
+		{"stg", envStaging},
+		// Development aliases.
+		{"develop", envDevelopment},
+		{"dev", envDevelopment},
+		// Unrecognized inputs are returned as-is (error surfaces in resolveEnvironment).
+		{"unknown", authEnvironment("unknown")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			if got := normalizeEnvironment(tc.input); got != tc.want {
+				t.Errorf("normalizeEnvironment(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveEnvironmentAliases(t *testing.T) {
+	tests := []struct {
+		input      string
+		wantDomain string
+	}{
+		{"prod", "sso.linuxfoundation.org"},
+		{"production", "sso.linuxfoundation.org"},
+		{"staging", "linuxfoundation-staging.auth0.com"},
+		{"stage", "linuxfoundation-staging.auth0.com"},
+		{"stg", "linuxfoundation-staging.auth0.com"},
+		{"development", "linuxfoundation-dev.auth0.com"},
+		{"develop", "linuxfoundation-dev.auth0.com"},
+		{"dev", "linuxfoundation-dev.auth0.com"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			env := normalizeEnvironment(tc.input)
+			domain, clientID, err := resolveEnvironment(env)
+			if err != nil {
+				t.Fatalf("resolveEnvironment(%q): %v", tc.input, err)
+			}
+			if domain != tc.wantDomain {
+				t.Errorf("domain = %q, want %q", domain, tc.wantDomain)
+			}
+			if clientID == "" {
+				t.Error("clientID = \"\", want a non-empty compiled-in client ID")
+			}
+		})
+	}
+}
+
+func TestResolveEnvironmentUnknown(t *testing.T) {
+	_, _, err := resolveEnvironment(authEnvironment("bogus"))
+	if err == nil {
+		t.Fatal("resolveEnvironment(\"bogus\"): got nil error, want errInvalidEnvironment")
+	}
+	if !errors.Is(err, errInvalidEnvironment) {
+		t.Errorf("resolveEnvironment(\"bogus\") error = %v, want wrapping errInvalidEnvironment", err)
+	}
+}

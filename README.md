@@ -41,6 +41,10 @@ go install github.com/linuxfoundation/lfx-cli/cmd/lfx@latest
 # Log in via the Auth0 Device Code flow.
 lfx auth login
 
+# Log in against a non-production environment (aliases accepted).
+lfx auth login --env staging   # also: stage, stg
+lfx auth login --env dev       # also: develop, development
+
 # Show the current authentication status.
 lfx auth status
 
