@@ -116,7 +116,7 @@ func newAuthLoginCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  envFlagName,
-				Usage: "Target environment: prod, staging, or development",
+				Usage: "Target environment: prod/production, staging/stage/stg, or development/develop/dev",
 				Value: string(envProd),
 			},
 			&cli.StringFlag{
@@ -135,7 +135,7 @@ func runAuthLogin(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	env := authEnvironment(cmd.String(envFlagName))
+	env := normalizeEnvironment(cmd.String(envFlagName))
 	domain, clientID, err := resolveEnvironment(env)
 	if err != nil {
 		return err

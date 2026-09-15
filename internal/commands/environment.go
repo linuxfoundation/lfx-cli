@@ -68,11 +68,39 @@ const defaultAudience = "https://lfx-api.v2.cluster.lfx.dev/"
 // unrecognized authEnvironment value.
 var errInvalidEnvironment = errors.New("invalid environment")
 
+// envAliases maps accepted short-forms and alternate spellings to the
+// canonical authEnvironment constant. Only aliases are listed here;
+// canonical names are valid inputs to resolveEnvironment on their own via
+// the authDomains lookup, so they don't need a duplicate entry.
+var envAliases = map[string]authEnvironment{
+	// production
+	"production": envProd,
+	// staging
+	"stage": envStaging,
+	"stg":   envStaging,
+	// development
+	"develop": envDevelopment,
+	"dev":     envDevelopment,
+}
+
+// normalizeEnvironment maps an input string (canonical name or alias) to
+// the canonical authEnvironment value. Unrecognized inputs are returned
+// as-is so that resolveEnvironment can produce a single, consistent error.
+func normalizeEnvironment(input string) authEnvironment {
+	if canonical, ok := envAliases[input]; ok {
+		return canonical
+	}
+	return authEnvironment(input)
+}
+
 // resolveEnvironment returns the IdP domain and client ID for env.
 func resolveEnvironment(env authEnvironment) (domain, clientID string, err error) {
 	domain, ok := authDomains[env]
 	if !ok {
-		return "", "", fmt.Errorf("%w: %q (must be one of prod, staging, development)", errInvalidEnvironment, env)
+		return "", "", fmt.Errorf(
+			"%w: %q (must be one of prod/production, staging/stage/stg, development/develop/dev)",
+			errInvalidEnvironment, env,
+		)
 	}
 	return domain, authClientIDs[env], nil
 }
