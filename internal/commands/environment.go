@@ -58,11 +58,11 @@ var authClientIDs = map[authEnvironment]string{
 
 // cspell:enable
 
-// defaultAudience is the production LFX v2 API audience used unless
-// overridden via `--audience`. It intentionally does not vary with `--env`:
-// the audience is independent of the selected environment and must be set
-// explicitly when testing a non-prod API.
-const defaultAudience = "https://lfx-api.v2.cluster.lfx.dev/"
+// defaultAudience is the LFX v2 API audience used unless overridden via
+// `--audience`. It intentionally does not vary with `--env`: the audience
+// is independent of the selected environment and must be set explicitly
+// when testing a different API.
+const defaultAudience = "https://lfx-api.v2.cluster.linuxfound.info/"
 
 // errInvalidEnvironment is returned by resolveEnvironment for an
 // unrecognized authEnvironment value.
