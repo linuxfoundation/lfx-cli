@@ -58,11 +58,14 @@ var authClientIDs = map[authEnvironment]string{
 
 // cspell:enable
 
-// defaultAudience is the production LFX v2 API audience used unless
-// overridden via `--audience`. It intentionally does not vary with `--env`:
-// the audience is independent of the selected environment and must be set
-// explicitly when testing a non-prod API.
-const defaultAudience = "https://lfx-api.v2.cluster.lfx.dev/"
+// defaultAudiences maps each authEnvironment to the matching LFX v2 API
+// audience used when `lfx auth login` is run without an explicit
+// `--audience` override.
+var defaultAudiences = map[authEnvironment]string{
+	envProd:        "https://lfx-api.v2.cluster.lfx.dev/",
+	envStaging:     "https://lfx-api.staging.v2.cluster.linuxfound.info/",
+	envDevelopment: "https://lfx-api.dev.v2.cluster.linuxfound.info/",
+}
 
 // errInvalidEnvironment is returned by resolveEnvironment for an
 // unrecognized authEnvironment value.
@@ -75,4 +78,14 @@ func resolveEnvironment(env authEnvironment) (domain, clientID string, err error
 		return "", "", fmt.Errorf("%w: %q (must be one of prod, staging, development)", errInvalidEnvironment, env)
 	}
 	return domain, authClientIDs[env], nil
+}
+
+// defaultAudienceForEnvironment returns the default LFX v2 API audience
+// for env.
+func defaultAudienceForEnvironment(env authEnvironment) (string, error) {
+	audience, ok := defaultAudiences[env]
+	if !ok {
+		return "", fmt.Errorf("%w: %q (must be one of prod, staging, development)", errInvalidEnvironment, env)
+	}
+	return audience, nil
 }
