@@ -43,6 +43,48 @@ func newInsecureStore(t *testing.T) credstore.Store {
 	return store
 }
 
+func TestDefaultAudienceForEnvironment(t *testing.T) {
+	tests := []struct {
+		name string
+		env  authEnvironment
+		want string
+	}{
+		{
+			name: "prod",
+			env:  envProd,
+			want: "https://lfx-api.v2.cluster.lfx.dev/",
+		},
+		{
+			name: "staging",
+			env:  envStaging,
+			want: "https://lfx-api.staging.v2.cluster.linuxfound.info/",
+		},
+		{
+			name: "development",
+			env:  envDevelopment,
+			want: "https://lfx-api.dev.v2.cluster.linuxfound.info/",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := defaultAudienceForEnvironment(tc.env)
+			if err != nil {
+				t.Fatalf("defaultAudienceForEnvironment(%q): %v", tc.env, err)
+			}
+			if got != tc.want {
+				t.Errorf("defaultAudienceForEnvironment(%q) = %q, want %q", tc.env, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDefaultAudienceForEnvironmentInvalid(t *testing.T) {
+	if _, err := defaultAudienceForEnvironment(authEnvironment("invalid")); err == nil {
+		t.Fatal("defaultAudienceForEnvironment(invalid): got nil error, want invalid-environment error")
+	}
+}
+
 func TestPersistLoginSuccess(t *testing.T) {
 	store := newInsecureStore(t)
 

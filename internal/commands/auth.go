@@ -121,8 +121,7 @@ func newAuthLoginCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  audienceFlagName,
-				Usage: "Auth0 API audience to request tokens for (independent of --env)",
-				Value: defaultAudience,
+				Usage: "Auth0 API audience to request tokens for (defaults to the selected environment's LFX API audience)",
 			},
 		},
 		Action: runAuthLogin,
@@ -141,6 +140,12 @@ func runAuthLogin(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	audience := cmd.String(audienceFlagName)
+	if !cmd.IsSet(audienceFlagName) {
+		audience, err = defaultAudienceForEnvironment(env)
+		if err != nil {
+			return err
+		}
+	}
 	insecure := cmd.Bool(insecureStorageFlagName)
 	backend := cmd.String(backendFlagName)
 
