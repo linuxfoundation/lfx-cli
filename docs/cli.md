@@ -42,7 +42,7 @@ Manage authentication with the LFX platform
 
 Log in to the LFX platform via the Auth0 Device Code flow
 
-**--audience**="": Auth0 API audience to request tokens for (independent of --env) (default: "https://lfx-api.v2.cluster.lfx.dev/")
+**--audience**="": Auth0 API audience to request tokens for (defaults to the selected environment's LFX API audience)
 
 **--env**="": Target environment: prod, staging, or development (default: "prod")
 
