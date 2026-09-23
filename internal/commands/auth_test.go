@@ -50,8 +50,8 @@ func TestDefaultAudienceForEnvironment(t *testing.T) {
 		want string
 	}{
 		{
-			name: "prod",
-			env:  envProd,
+			name: "production",
+			env:  envProduction,
 			want: "https://lfx-api.v2.cluster.lfx.dev/",
 		},
 		{
@@ -173,6 +173,34 @@ func TestLoadDeviceStateForBackendDomainMismatch(t *testing.T) {
 	newTestCommand(t, []string{"--insecure-storage"}, func(cmd *cli.Command) {
 		if _, _, _, err := loadDeviceStateForBackend(store, cmd); err == nil {
 			t.Fatal("loadDeviceStateForBackend: got nil error, want IdP domain mismatch error")
+		}
+	})
+}
+
+func TestLoadDeviceStateForBackendLegacyProdEnvironment(t *testing.T) {
+	// state.json files written before "prod" was renamed to "production"
+	// persist the old name; loadDeviceStateForBackend must still resolve
+	// them via normalizeEnvironment rather than erroring or requiring a
+	// fresh `lfx auth login`.
+	store := newInsecureStore(t)
+	if err := store.SaveDeviceState(credstore.DeviceState{
+		IDPDomain:   "sso.linuxfoundation.org",
+		Environment: "prod",
+		Insecure:    true,
+	}); err != nil {
+		t.Fatalf("SaveDeviceState: %v", err)
+	}
+
+	newTestCommand(t, []string{"--insecure-storage"}, func(cmd *cli.Command) {
+		state, domain, _, err := loadDeviceStateForBackend(store, cmd)
+		if err != nil {
+			t.Fatalf("loadDeviceStateForBackend: %v", err)
+		}
+		if domain != "sso.linuxfoundation.org" {
+			t.Errorf("domain = %q, want sso.linuxfoundation.org", domain)
+		}
+		if state.Environment != "prod" {
+			t.Errorf("state.Environment = %q, want the raw persisted value %q", state.Environment, "prod")
 		}
 	})
 }
@@ -350,15 +378,13 @@ func TestNormalizeEnvironment(t *testing.T) {
 		want  authEnvironment
 	}{
 		// Canonical names pass through unchanged.
-		{"prod", envProd},
+		{"production", envProduction},
 		{"staging", envStaging},
 		{"development", envDevelopment},
-		// Production aliases.
-		{"production", envProd},
-		// Staging aliases.
+		// Aliases.
+		{"prod", envProduction},
 		{"stage", envStaging},
 		{"stg", envStaging},
-		// Development aliases.
 		{"develop", envDevelopment},
 		{"dev", envDevelopment},
 		// Unrecognized inputs are returned as-is (error surfaces in resolveEnvironment).
@@ -379,12 +405,8 @@ func TestResolveEnvironmentAliases(t *testing.T) {
 		wantDomain string
 	}{
 		{"prod", "sso.linuxfoundation.org"},
-		{"production", "sso.linuxfoundation.org"},
-		{"staging", "linuxfoundation-staging.auth0.com"},
 		{"stage", "linuxfoundation-staging.auth0.com"},
 		{"stg", "linuxfoundation-staging.auth0.com"},
-		{"development", "linuxfoundation-dev.auth0.com"},
-		{"develop", "linuxfoundation-dev.auth0.com"},
 		{"dev", "linuxfoundation-dev.auth0.com"},
 	}
 	for _, tc := range tests {
