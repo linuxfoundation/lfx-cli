@@ -50,8 +50,8 @@ func TestDefaultAudienceForEnvironment(t *testing.T) {
 		want string
 	}{
 		{
-			name: "prod",
-			env:  envProd,
+			name: "production",
+			env:  envProduction,
 			want: "https://lfx-api.v2.cluster.lfx.dev/",
 		},
 		{
@@ -173,6 +173,34 @@ func TestLoadDeviceStateForBackendDomainMismatch(t *testing.T) {
 	newTestCommand(t, []string{"--insecure-storage"}, func(cmd *cli.Command) {
 		if _, _, _, err := loadDeviceStateForBackend(store, cmd); err == nil {
 			t.Fatal("loadDeviceStateForBackend: got nil error, want IdP domain mismatch error")
+		}
+	})
+}
+
+func TestLoadDeviceStateForBackendLegacyProdEnvironment(t *testing.T) {
+	// state.json files written before "prod" was renamed to "production"
+	// persist the old name; loadDeviceStateForBackend must still resolve
+	// them via normalizeEnvironment rather than erroring or requiring a
+	// fresh `lfx auth login`.
+	store := newInsecureStore(t)
+	if err := store.SaveDeviceState(credstore.DeviceState{
+		IDPDomain:   "sso.linuxfoundation.org",
+		Environment: "prod",
+		Insecure:    true,
+	}); err != nil {
+		t.Fatalf("SaveDeviceState: %v", err)
+	}
+
+	newTestCommand(t, []string{"--insecure-storage"}, func(cmd *cli.Command) {
+		state, domain, _, err := loadDeviceStateForBackend(store, cmd)
+		if err != nil {
+			t.Fatalf("loadDeviceStateForBackend: %v", err)
+		}
+		if domain != "sso.linuxfoundation.org" {
+			t.Errorf("domain = %q, want sso.linuxfoundation.org", domain)
+		}
+		if state.Environment != "prod" {
+			t.Errorf("state.Environment = %q, want the raw persisted value %q", state.Environment, "prod")
 		}
 	})
 }
@@ -342,4 +370,68 @@ func TestStateMismatchReasonBackendPinMismatch(t *testing.T) {
 			t.Errorf("stateMismatchReason() = %q, want %q", got, want)
 		}
 	})
+}
+
+func TestNormalizeEnvironment(t *testing.T) {
+	tests := []struct {
+		input string
+		want  authEnvironment
+	}{
+		// Canonical names pass through unchanged.
+		{"production", envProduction},
+		{"staging", envStaging},
+		{"development", envDevelopment},
+		// Aliases.
+		{"prod", envProduction},
+		{"stage", envStaging},
+		{"stg", envStaging},
+		{"develop", envDevelopment},
+		{"dev", envDevelopment},
+		// Unrecognized inputs are returned as-is (error surfaces in resolveEnvironment).
+		{"unknown", authEnvironment("unknown")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			if got := normalizeEnvironment(tc.input); got != tc.want {
+				t.Errorf("normalizeEnvironment(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveEnvironmentAliases(t *testing.T) {
+	tests := []struct {
+		input      string
+		wantDomain string
+	}{
+		{"prod", "sso.linuxfoundation.org"},
+		{"stage", "linuxfoundation-staging.auth0.com"},
+		{"stg", "linuxfoundation-staging.auth0.com"},
+		{"dev", "linuxfoundation-dev.auth0.com"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			env := normalizeEnvironment(tc.input)
+			domain, clientID, err := resolveEnvironment(env)
+			if err != nil {
+				t.Fatalf("resolveEnvironment(%q): %v", tc.input, err)
+			}
+			if domain != tc.wantDomain {
+				t.Errorf("domain = %q, want %q", domain, tc.wantDomain)
+			}
+			if clientID == "" {
+				t.Error("clientID = \"\", want a non-empty compiled-in client ID")
+			}
+		})
+	}
+}
+
+func TestResolveEnvironmentUnknown(t *testing.T) {
+	_, _, err := resolveEnvironment(authEnvironment("bogus"))
+	if err == nil {
+		t.Fatal("resolveEnvironment(\"bogus\"): got nil error, want errInvalidEnvironment")
+	}
+	if !errors.Is(err, errInvalidEnvironment) {
+		t.Errorf("resolveEnvironment(\"bogus\") error = %v, want wrapping errInvalidEnvironment", err)
+	}
 }

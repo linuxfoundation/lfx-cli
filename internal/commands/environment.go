@@ -7,6 +7,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"sort"
 )
 
 // authEnvironment identifies which LFX Auth0 tenant/IdP a login targets,
@@ -18,7 +19,7 @@ type authEnvironment string
 // refresh_token grants). CIMD was evaluated and abandoned for this flow:
 // Auth0 silently drops CIMD client registration for the device_code grant.
 const (
-	envProd        authEnvironment = "prod"
+	envProduction  authEnvironment = "production"
 	envStaging     authEnvironment = "staging"
 	envDevelopment authEnvironment = "development"
 )
@@ -41,7 +42,7 @@ const (
 // a development-issued token claiming the prod audience would still be
 // rejected by prod as untrusted.
 var authDomains = map[authEnvironment]string{
-	envProd:        "sso.linuxfoundation.org",
+	envProduction:  "sso.linuxfoundation.org",
 	envStaging:     "linuxfoundation-staging.auth0.com",
 	envDevelopment: "linuxfoundation-dev.auth0.com",
 }
@@ -51,7 +52,7 @@ var authDomains = map[authEnvironment]string{
 // grant.
 // cspell:disable -- opaque, randomly-generated Auth0 client IDs, not words.
 var authClientIDs = map[authEnvironment]string{
-	envProd:        "kkCpM0c9zJ0vNZZDDOGqcyzocOBircOn",
+	envProduction:  "kkCpM0c9zJ0vNZZDDOGqcyzocOBircOn",
 	envStaging:     "9XzXgDfAB9O7IoHqhBj5mg4VLvdBM8ci",
 	envDevelopment: "0TN1OElqQY146vLEPdV5qfejRKpc9IAZ",
 }
@@ -62,7 +63,7 @@ var authClientIDs = map[authEnvironment]string{
 // audience used when `lfx auth login` is run without an explicit
 // `--audience` override.
 var defaultAudiences = map[authEnvironment]string{
-	envProd:        "https://lfx-api.v2.cluster.lfx.dev/",
+	envProduction:  "https://lfx-api.v2.cluster.lfx.dev/",
 	envStaging:     "https://lfx-api.staging.v2.cluster.linuxfound.info/",
 	envDevelopment: "https://lfx-api.dev.v2.cluster.linuxfound.info/",
 }
@@ -71,11 +72,44 @@ var defaultAudiences = map[authEnvironment]string{
 // unrecognized authEnvironment value.
 var errInvalidEnvironment = errors.New("invalid environment")
 
+// envAliases maps accepted short-forms to the canonical authEnvironment
+// constant. Only aliases are listed here; canonical names are valid
+// inputs to resolveEnvironment on their own via the authDomains lookup,
+// so they don't need a duplicate entry.
+var envAliases = map[string]authEnvironment{
+	"prod":    envProduction,
+	"stage":   envStaging,
+	"stg":     envStaging,
+	"develop": envDevelopment,
+	"dev":     envDevelopment,
+}
+
+// normalizeEnvironment maps an input string (canonical name or alias) to
+// the canonical authEnvironment value. Unrecognized inputs are returned
+// as-is so that resolveEnvironment can produce a single, consistent error.
+//
+// This same lookup is also applied to authEnvironment values loaded from
+// a previously persisted credstore.DeviceState.Environment (see auth.go's
+// loadDeviceStateForBackend, resolveAccessToken, and the `auth status`
+// display): "prod" was the canonical production name before it was
+// renamed to "production", and envAliases still maps it to envProduction,
+// so state.json files written before that rename keep resolving
+// correctly without requiring a fresh `lfx auth login`.
+func normalizeEnvironment(input string) authEnvironment {
+	if canonical, ok := envAliases[input]; ok {
+		return canonical
+	}
+	return authEnvironment(input)
+}
+
 // resolveEnvironment returns the IdP domain and client ID for env.
 func resolveEnvironment(env authEnvironment) (domain, clientID string, err error) {
 	domain, ok := authDomains[env]
 	if !ok {
-		return "", "", fmt.Errorf("%w: %q (must be one of prod, staging, development)", errInvalidEnvironment, env)
+		return "", "", fmt.Errorf(
+			"%w: %q; see `lfx auth environments` for accepted values",
+			errInvalidEnvironment, env,
+		)
 	}
 	return domain, authClientIDs[env], nil
 }
@@ -85,7 +119,24 @@ func resolveEnvironment(env authEnvironment) (domain, clientID string, err error
 func defaultAudienceForEnvironment(env authEnvironment) (string, error) {
 	audience, ok := defaultAudiences[env]
 	if !ok {
-		return "", fmt.Errorf("%w: %q (must be one of prod, staging, development)", errInvalidEnvironment, env)
+		return "", fmt.Errorf(
+			"%w: %q; see `lfx auth environments` for accepted values",
+			errInvalidEnvironment, env,
+		)
 	}
 	return audience, nil
+}
+
+// environmentAliases returns the aliases accepted for env's canonical
+// name, sorted for stable, readable output (e.g. from `lfx auth
+// environments`).
+func environmentAliases(env authEnvironment) []string {
+	var aliases []string
+	for alias, canonical := range envAliases {
+		if canonical == env {
+			aliases = append(aliases, alias)
+		}
+	}
+	sort.Strings(aliases)
+	return aliases
 }

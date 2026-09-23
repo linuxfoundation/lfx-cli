@@ -82,7 +82,7 @@ func NewAPICommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  apiHostnameFlagName,
-				Usage: "Override the LFX API base URL (advanced; independent of the IdP domain). Requires a development-environment login (`lfx auth login --env=development`).",
+				Usage: "Override the LFX API base URL (advanced; independent of the IdP domain). Requires a development-environment login ('lfx auth login --env=development').",
 			},
 		},
 		Action: runAPI,

@@ -55,7 +55,7 @@ var CredentialStoreFlags = []cli.Flag{
 	},
 	&cli.StringFlag{
 		Name:  backendFlagName,
-		Usage: "Pin credential storage to a specific system backend (see `lfx auth backends`); mutually exclusive with --insecure-storage",
+		Usage: "Pin credential storage to a specific system backend (see 'lfx auth backends'); mutually exclusive with --insecure-storage",
 	},
 }
 
@@ -84,6 +84,7 @@ func NewAuthCommand() *cli.Command {
 			newAuthStatusCommand(),
 			newAuthLogoutCommand(),
 			newAuthBackendsCommand(),
+			newAuthEnvironmentsCommand(),
 		},
 	}
 }
@@ -116,12 +117,12 @@ func newAuthLoginCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  envFlagName,
-				Usage: "Target environment: prod, staging, or development",
-				Value: string(envProd),
+				Usage: "Target environment; see 'lfx auth environments' for accepted values",
+				Value: string(envProduction),
 			},
 			&cli.StringFlag{
 				Name:  audienceFlagName,
-				Usage: "Auth0 API audience to request tokens for (defaults to the selected environment's LFX API audience)",
+				Usage: "Auth0 API audience to request tokens for; defaults to --env's audience (see 'lfx auth environments')",
 			},
 		},
 		Action: runAuthLogin,
@@ -134,7 +135,7 @@ func runAuthLogin(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	env := authEnvironment(cmd.String(envFlagName))
+	env := normalizeEnvironment(cmd.String(envFlagName))
 	domain, clientID, err := resolveEnvironment(env)
 	if err != nil {
 		return err
@@ -336,7 +337,7 @@ func loadDeviceStateForBackend(store credstore.Store, cmd *cli.Command) (state c
 		)
 	}
 
-	domain, clientID, err = resolveEnvironment(authEnvironment(state.Environment))
+	domain, clientID, err = resolveEnvironment(normalizeEnvironment(state.Environment))
 	if err != nil {
 		return credstore.DeviceState{}, "", "", err
 	}
@@ -488,7 +489,7 @@ func resolveAccessToken(ctx context.Context, cmd *cli.Command) (token, audience 
 	}
 
 	if creds.ValidAccessToken() {
-		return creds.AccessToken, state.Audience, authEnvironment(state.Environment), nil
+		return creds.AccessToken, state.Audience, normalizeEnvironment(state.Environment), nil
 	}
 
 	if creds.RefreshToken == "" {
@@ -527,7 +528,7 @@ func resolveAccessToken(ctx context.Context, cmd *cli.Command) (token, audience 
 		return "", "", "", fmt.Errorf("save refreshed credentials: %w", err)
 	}
 
-	return refreshed.AccessToken, state.Audience, authEnvironment(state.Environment), nil
+	return refreshed.AccessToken, state.Audience, normalizeEnvironment(state.Environment), nil
 }
 
 func newAuthStatusCommand() *cli.Command {
@@ -563,7 +564,7 @@ func newAuthStatusCommand() *cli.Command {
 				)
 			}
 			if state.Environment != "" {
-				fmt.Printf("  %-22s %s\n", "Environment:", state.Environment)
+				fmt.Printf("  %-22s %s\n", "Environment:", normalizeEnvironment(state.Environment))
 			}
 			if state.IDPDomain != "" {
 				fmt.Printf("  %-22s %s\n", "IdP domain:", state.IDPDomain)
@@ -674,6 +675,31 @@ func newAuthBackendsCommand() *cli.Command {
 			fmt.Println("Available credential-store backends, in the order `lfx auth login` tries them:")
 			for _, b := range backends {
 				fmt.Printf("  %-15s %s\n", b.Name, b.DisplayName)
+			}
+			return nil
+		},
+	}
+}
+
+// newAuthEnvironmentsCommand builds `lfx auth environments`, which lists
+// every canonical --env value accepted by `lfx auth login`, along with
+// its aliases and default API audience. Kept out of --env's own usage
+// text (and out of the main help listing, aside from the command itself)
+// to keep that terser; full detail lives here for anyone who needs to
+// look it up.
+func newAuthEnvironmentsCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "environments",
+		Usage: "List --env values accepted by `lfx auth login`, including aliases and default audiences",
+		Action: func(_ context.Context, _ *cli.Command) error {
+			fmt.Println("Accepted --env values:")
+			for _, env := range []authEnvironment{envProduction, envStaging, envDevelopment} {
+				line := "  " + string(env)
+				if aliases := environmentAliases(env); len(aliases) > 0 {
+					line += fmt.Sprintf(" (aliases: %s)", strings.Join(aliases, ", "))
+				}
+				fmt.Println(line)
+				fmt.Printf("      default audience: %s\n", defaultAudiences[env])
 			}
 			return nil
 		},
