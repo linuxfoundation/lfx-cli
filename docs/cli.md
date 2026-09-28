@@ -21,7 +21,7 @@ lfx [GLOBAL OPTIONS] [command [COMMAND OPTIONS]] [ARGUMENTS...]
 
 # GLOBAL OPTIONS
 
-**--backend**="": Pin credential storage to a specific system backend (see `lfx auth backends`); mutually exclusive with --insecure-storage
+**--backend**="": Pin credential storage to a specific system backend (see 'lfx auth backends'); mutually exclusive with --insecure-storage
 
 **--help, -h**: show help
 
@@ -42,9 +42,9 @@ Manage authentication with the LFX platform
 
 Log in to the LFX platform via the Auth0 Device Code flow
 
-**--audience**="": Auth0 API audience to request tokens for (defaults to the selected environment's LFX API audience)
+**--audience**="": Auth0 API audience to request tokens for; defaults to --env's audience (see 'lfx auth environments')
 
-**--env**="": Target environment: prod, staging, or development (default: "prod")
+**--env**="": Target environment; see 'lfx auth environments' for accepted values (default: "production")
 
 **--help, -h**: show help
 
@@ -96,6 +96,16 @@ List the system credential-store backends available on this OS
 
 Shows a list of commands or help for one command
 
+### environments
+
+List --env values accepted by `lfx auth login`, including aliases and default audiences
+
+**--help, -h**: show help
+
+#### help, h
+
+Shows a list of commands or help for one command
+
 ### help, h
 
 Shows a list of commands or help for one command
@@ -110,7 +120,7 @@ Make an authenticated call to an LFX platform API endpoint
 
 **--help, -h**: show help
 
-**--hostname**="": Override the LFX API base URL (advanced; independent of the IdP domain). Requires a development-environment login (`lfx auth login --env=development`).
+**--hostname**="": Override the LFX API base URL (advanced; independent of the IdP domain). Requires a development-environment login ('lfx auth login --env=development').
 
 **--input**="": Read the request body from a file, or '-' for stdin (Content-Type defaults to application/json for POST/PUT unless overridden with -H)
 
