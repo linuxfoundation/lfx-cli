@@ -50,6 +50,15 @@ func NewAPICommand() *cli.Command {
 		Name:      "api",
 		Usage:     "Make an authenticated call to an LFX platform API endpoint",
 		ArgsUsage: "<path>",
+		// Deliver each -H/--field/--raw-field occurrence as exactly one
+		// element. urfave/cli otherwise splits slice flag values on ","
+		// (with no escape), so a single value such as
+		// --raw-field 'note=a,role=admin' would silently become two body
+		// fields (or -H 'X: a,Authorization: z' two headers). This must
+		// be set on this command rather than the root: urfave/cli applies
+		// the separator config of the command parsing the flag and does
+		// not inherit it from parents.
+		DisableSliceFlagSeparator: true,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    apiMethodFlagName,

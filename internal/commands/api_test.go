@@ -177,6 +177,61 @@ func TestAPIRequestBodyInvalidRawField(t *testing.T) {
 	})
 }
 
+// runRealAPICommand parses args against the real `api` command (including
+// its command-level parsing options, not just its flags), nested under a
+// root command as in cmd/lfx/main.go, and hands the parsed *cli.Command
+// to fn in place of runAPI.
+func runRealAPICommand(t *testing.T, args []string, fn func(cmd *cli.Command)) {
+	t.Helper()
+	api := NewAPICommand()
+	api.Action = func(_ context.Context, cmd *cli.Command) error {
+		fn(cmd)
+		return nil
+	}
+	root := &cli.Command{Name: "lfx", Commands: []*cli.Command{api}}
+	if err := root.Run(context.Background(), append([]string{"lfx", "api"}, args...)); err != nil {
+		t.Fatalf("root.Run: %v", err)
+	}
+}
+
+func TestAPIRequestBodyCommaInValueIsOneField(t *testing.T) {
+	runRealAPICommand(t, []string{
+		"--raw-field", "a=x,b=y",
+		"--field", "c=1,active=true",
+		"/v1/example",
+	}, func(cmd *cli.Command) {
+		body, _, err := apiRequestBody(cmd)
+		if err != nil {
+			t.Fatalf("apiRequestBody: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("json.Unmarshal(body): %v", err)
+		}
+		want := map[string]any{"a": "x,b=y", "c": "1,active=true"}
+		if len(got) != len(want) {
+			t.Fatalf("body = %v, want %v", got, want)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("body[%q] = %#v, want %#v", k, got[k], v)
+			}
+		}
+	})
+}
+
+func TestAPIHeaderCommaInValueIsOneHeader(t *testing.T) {
+	runRealAPICommand(t, []string{
+		"-H", "X: a,Authorization: z",
+		"/v1/example",
+	}, func(cmd *cli.Command) {
+		headers := cmd.StringSlice(apiHeaderFlagName)
+		if len(headers) != 1 || headers[0] != "X: a,Authorization: z" {
+			t.Fatalf("headers = %q, want exactly one element %q", headers, "X: a,Authorization: z")
+		}
+	})
+}
+
 func TestAPIRequestBodyInputFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "body.json")
 	if err := os.WriteFile(path, []byte(`{"raw":true}`), 0o600); err != nil {
