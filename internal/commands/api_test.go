@@ -184,13 +184,18 @@ func TestAPIRequestBodyInvalidRawField(t *testing.T) {
 func runRealAPICommand(t *testing.T, args []string, fn func(cmd *cli.Command)) {
 	t.Helper()
 	api := NewAPICommand()
+	called := false
 	api.Action = func(_ context.Context, cmd *cli.Command) error {
+		called = true
 		fn(cmd)
 		return nil
 	}
 	root := &cli.Command{Name: "lfx", Commands: []*cli.Command{api}}
 	if err := root.Run(context.Background(), append([]string{"lfx", "api"}, args...)); err != nil {
 		t.Fatalf("root.Run: %v", err)
+	}
+	if !called {
+		t.Fatal("api action was not invoked")
 	}
 }
 
