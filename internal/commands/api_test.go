@@ -6,10 +6,16 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/linuxfoundation/lfx-cli/internal/credstore"
 	"github.com/urfave/cli/v3"
 )
 
@@ -302,4 +308,105 @@ func TestAPIRequestBodyNoneWithPipedStdin(t *testing.T) {
 			t.Errorf("body = %q, want %q", body, `{"from":"stdin"}`)
 		}
 	})
+}
+
+func TestAPIDefaultBaseURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		audience string
+		env      authEnvironment
+		want     string
+		wantErr  bool
+	}{
+		{name: "production default", audience: defaultAudiences[envProduction], env: envProduction, want: defaultAudiences[envProduction]},
+		{name: "staging default", audience: defaultAudiences[envStaging], env: envStaging, want: defaultAudiences[envStaging]},
+		{name: "development default", audience: defaultAudiences[envDevelopment], env: envDevelopment, want: defaultAudiences[envDevelopment]},
+		{name: "production tampered audience rejected", audience: "https://attacker.example/", env: envProduction, wantErr: true},
+		{name: "staging tampered audience rejected", audience: "https://attacker.example/", env: envStaging, wantErr: true},
+		{name: "development tampered audience rejected", audience: "https://attacker.example/", env: envDevelopment, wantErr: true},
+		{name: "loopback audience rejected", audience: "http://127.0.0.1:8080/", env: envProduction, wantErr: true},
+		{name: "other environment's default rejected", audience: defaultAudiences[envDevelopment], env: envProduction, wantErr: true},
+		{name: "empty audience rejected", audience: "", env: envProduction, wantErr: true},
+		{name: "unknown environment rejected", audience: "https://attacker.example/", env: authEnvironment("invalid"), wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := apiDefaultBaseURL(tc.audience, tc.env)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("apiDefaultBaseURL(%q, %q) = %q, want error", tc.audience, tc.env, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("apiDefaultBaseURL(%q, %q): %v", tc.audience, tc.env, err)
+			}
+			if got != tc.want {
+				t.Errorf("apiDefaultBaseURL(%q, %q) = %q, want %q", tc.audience, tc.env, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRunAPIRefusesTamperedAudience checks that `lfx api` refuses a stored
+// login whose audience differs from its environment's default, rather than
+// sending the cached access token to that host.
+func TestRunAPIRefusesTamperedAudience(t *testing.T) {
+	tests := []struct {
+		name string
+		env  authEnvironment
+	}{
+		{name: "production", env: envProduction},
+		{name: "staging", env: envStaging},
+		{name: "development", env: envDevelopment},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var hits atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hits.Add(1)
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(server.Close)
+
+			stateDir := t.TempDir()
+			t.Setenv("XDG_STATE_HOME", stateDir)
+			store, err := credstore.New(credstore.Options{Insecure: true})
+			if err != nil {
+				t.Fatalf("credstore.New: %v", err)
+			}
+			if err := persistLogin(
+				store,
+				credstore.Credentials{
+					RefreshToken:      "refresh",
+					AccessToken:       "secret-access-token",
+					AccessTokenExpiry: time.Now().Add(time.Hour),
+				},
+				credstore.DeviceState{
+					IDPDomain:   authDomains[tc.env],
+					Environment: string(tc.env),
+					Audience:    server.URL + "/",
+					Insecure:    true,
+				},
+			); err != nil {
+				t.Fatalf("persistLogin: %v", err)
+			}
+
+			app := &cli.Command{
+				Name:     "lfx",
+				Flags:    CredentialStoreFlags,
+				Commands: []*cli.Command{NewAPICommand()},
+			}
+			err = app.Run(context.Background(), []string{"lfx", "--insecure-storage", "api", "--field", "k=v", "/x"})
+			if err == nil {
+				t.Fatal("lfx api: got nil error, want refusal of tampered audience")
+			}
+			if !strings.Contains(err.Error(), "does not match the default audience") {
+				t.Errorf("lfx api error = %q, want audience mismatch error", err)
+			}
+			if n := hits.Load(); n != 0 {
+				t.Fatalf("tampered audience host received %d request(s); want 0", n)
+			}
+		})
+	}
 }

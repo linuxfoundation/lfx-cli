@@ -119,7 +119,7 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 	baseURL := cmd.String(apiHostnameFlagName)
 	if cmd.IsSet(apiHostnameFlagName) {
 		if baseURL == "" {
-			return errors.New("--hostname was set to an empty value; omit the flag to use the login audience instead")
+			return errors.New("--hostname was set to an empty value; omit the flag to use the login environment's default API instead")
 		}
 		// --hostname sends the live bearer token to whatever host is
 		// named. The purpose of this restriction is to keep a prod or
@@ -138,10 +138,10 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 	if baseURL == "" {
-		baseURL = audience
-	}
-	if baseURL == "" {
-		return errors.New("no API base URL available; log in with `lfx auth login` or pass --hostname")
+		baseURL, err = apiDefaultBaseURL(audience, env)
+		if err != nil {
+			return err
+		}
 	}
 	if err := apiRequireHTTPS(baseURL); err != nil {
 		return err
@@ -347,14 +347,44 @@ func coerceFieldValue(value string) any {
 	return value
 }
 
+// apiDefaultBaseURL returns the API base URL to use when --hostname isn't
+// passed: the compiled-in default audience for env (see
+// defaultAudienceForEnvironment), never the persisted login audience
+// as-is. Mirroring loadDeviceStateForBackend's IdP domain check, a stored
+// audience that differs from env's default is refused, so the host that
+// receives the bearer token is only ever chosen by the compiled-in
+// environment table or by an explicit, per-invocation --hostname (subject
+// to its development-only gate). This applies uniformly to every
+// environment, including development. A deliberate non-default `lfx auth
+// login --audience` must therefore be re-confirmed on each call via
+// --hostname (development logins only).
+func apiDefaultBaseURL(audience string, env authEnvironment) (string, error) {
+	expected, err := defaultAudienceForEnvironment(env)
+	if err != nil {
+		return "", err
+	}
+	if audience != expected {
+		hint := ""
+		if env == envDevelopment {
+			hint = fmt.Sprintf(", or pass --%s explicitly to target a non-default API", apiHostnameFlagName)
+		}
+		return "", fmt.Errorf(
+			"stored login audience %q does not match the default audience %q for environment %q; refusing to use it as the API base URL. Run `lfx auth login --%s=%s` again%s",
+			audience, expected, env, envFlagName, env, hint,
+		)
+	}
+	return expected, nil
+}
+
 // apiJoinURL joins base and path into a single URL, ensuring exactly one
 // slash separates them. path is passed through unmodified (aside from a
 // leading-slash trim) rather than parsed/re-escaped: base is already
-// trusted (the login audience, or --hostname, which is gated to
-// development-environment logins in runAPI) and path is meant to be sent
-// verbatim, including its query string, exactly as the caller wrote it --
-// a URL-parsing round trip risks subtly rewriting it (see the query
-// string and escaped-slash regressions caught in review).
+// trusted (env's compiled-in default audience via apiDefaultBaseURL, or
+// --hostname, which is gated to development-environment logins in runAPI)
+// and path is meant to be sent verbatim, including its query string,
+// exactly as the caller wrote it -- a URL-parsing round trip risks subtly
+// rewriting it (see the query string and escaped-slash regressions caught
+// in review).
 func apiJoinURL(base, path string) (string, error) {
 	if base == "" {
 		return "", errors.New("empty base URL")

@@ -60,6 +60,12 @@ lfx api /projects --field name=example   # auto-promotes to POST
 lfx api -X PUT /projects/123 --input - -H "If-Match: <ver>" < input.json  # Content-Type: application/json is added automatically
 ```
 
+By default (when `--hostname` is not passed), `lfx api` sends requests to
+the default API for the login's environment (see `lfx auth environments`).
+If the stored login was made with a non-default `--audience`, `lfx api`
+refuses to use it as the base URL; for development logins, pass
+`--hostname` explicitly on each call to target a different API.
+
 Credentials (refresh token, cached access token) are stored in your
 operating system's credential store by default (macOS Keychain, Windows
 Credential Manager, Linux Secret Service/KWallet/`pass`). Which of these is

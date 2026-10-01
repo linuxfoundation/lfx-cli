@@ -463,9 +463,11 @@ func newAuthTokenCommand() *cli.Command {
 // resolveAccessToken returns a valid access token for the current login,
 // refreshing it (and persisting the refreshed credentials) if the cached
 // one is missing or expired. It also returns the audience and login
-// environment recorded at login time, so callers (e.g. `lfx api`) can use
-// the audience as their default API base URL and the environment to gate
-// features like --hostname to non-production logins. Both `lfx auth
+// environment recorded at login time, so callers (e.g. `lfx api`) can check
+// the audience against the environment's compiled-in default (see
+// apiDefaultBaseURL; the persisted audience is never trusted as a base URL
+// on its own) and use the environment to gate features like --hostname to
+// non-production logins. Both `lfx auth
 // token` and `lfx api` share this single code path so their refresh,
 // error, and credential-persistence behavior never drifts apart.
 func resolveAccessToken(ctx context.Context, cmd *cli.Command) (token, audience string, env authEnvironment, err error) {
