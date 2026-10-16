@@ -67,6 +67,12 @@ Automatic browser opening accepts only absolute HTTPS URLs with a hostname.
 Other verification URI values are displayed for manual inspection without
 launching them; control characters in login instructions are escaped.
 
+By default (when `--hostname` is not passed), `lfx api` sends requests to
+the default API for the login's environment (see `lfx auth environments`).
+If the stored login was made with a non-default `--audience`, `lfx api`
+refuses to use it as the base URL; for development logins, pass
+`--hostname` explicitly on each call to target a different API.
+
 Credentials (refresh token, cached access token) are stored in your
 operating system's credential store by default (macOS Keychain, Windows
 Credential Manager, Linux Secret Service/KWallet/`pass`). Which of these is

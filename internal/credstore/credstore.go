@@ -196,8 +196,11 @@ type DeviceState struct {
 	// Audience is the `--audience` value used at login. Auth0's
 	// refresh_token grant automatically ties the refreshed access token
 	// to the audience it was originally issued for, so this isn't sent
-	// back on refresh; it's persisted purely for display in
-	// `lfx auth status`.
+	// back on refresh; it's persisted for display in `lfx auth status`
+	// and so `lfx api` can refuse a login whose audience differs from
+	// its environment's compiled-in default. Like the rest of state.json
+	// it is unauthenticated, so it must never on its own choose which
+	// host receives a bearer token.
 	Audience string `json:"audience,omitempty"`
 	// Insecure records whether `--insecure-storage` was passed at login,
 	// i.e. whether Credentials live in the plain-file backend rather than
