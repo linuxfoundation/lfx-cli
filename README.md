@@ -92,6 +92,39 @@ lfx auth login --backend=keychain
 
 Run `lfx --help` or `lfx <command> --help` for full details on any command.
 
+## Shell completion
+
+`lfx` can print a completion script for bash, zsh, fish, and PowerShell. The
+`completion` command is hidden from `lfx --help`, but it is always available:
+
+```bash
+lfx completion bash   # also: zsh, fish, pwsh
+```
+
+Source the output from your shell's startup file to enable completion:
+
+```bash
+# bash: add to ~/.bashrc
+source <(lfx completion bash)
+
+# zsh: add to ~/.zshrc
+source <(lfx completion zsh)
+
+# fish: write the script where fish looks for completions
+lfx completion fish > ~/.config/fish/completions/lfx.fish
+```
+
+For PowerShell, write the script to a file named `lfx.ps1` and run it, for
+example from your profile:
+
+```powershell
+lfx completion pwsh > path\to\lfx.ps1
+. path\to\lfx.ps1
+```
+
+Completion covers subcommands and flag names; values such as `--env` are not
+completed yet, and the installer does not set completion up for you.
+
 ## Development
 
 ```bash
