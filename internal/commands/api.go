@@ -166,17 +166,7 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	// Don't auto-follow redirects: http.DefaultClient can preserve the
-	// Authorization header across a same-host redirect even when it
-	// downgrades from HTTPS to HTTP, which would bypass
-	// apiRequireHTTPS and leak the bearer token. A 3xx response is
-	// instead reported like any other non-2xx status below.
-	client := &http.Client{
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	resp, err := client.Do(req)
+	resp, err := newNoRedirectHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
@@ -191,13 +181,8 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return fmt.Errorf("read response body: %w", err)
 		}
-		output := []byte(gjson.GetBytes(respBody, query).String())
-		// Write output verbatim with no added trailing newline,
-		// matching `gh api -q` so a scalar result (e.g. a single
-		// field) can be captured cleanly by a shell command
-		// substitution without a stray newline.
-		if _, err := os.Stdout.Write(output); err != nil {
-			return fmt.Errorf("write response body: %w", err)
+		if err := writeQueryOutput(respBody, query); err != nil {
+			return err
 		}
 	} else {
 		// Stream the body straight through rather than buffering it
@@ -215,6 +200,18 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		return cli.Exit(fmt.Sprintf("HTTP %d", resp.StatusCode), 1)
 	}
 
+	return nil
+}
+
+// writeQueryOutput writes the result of a gjson query over body to stdout.
+// Output is written verbatim with no added trailing newline, matching
+// `gh api -q`, so a scalar result can be captured cleanly by a shell
+// command substitution.
+func writeQueryOutput(body []byte, query string) error {
+	output := []byte(gjson.GetBytes(body, query).String())
+	if _, err := os.Stdout.Write(output); err != nil {
+		return fmt.Errorf("write response body: %w", err)
+	}
 	return nil
 }
 
@@ -341,6 +338,19 @@ func apiJoinURL(base, path string) (string, error) {
 		return "", errors.New("empty base URL")
 	}
 	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/"), nil
+}
+
+// newNoRedirectHTTPClient returns an HTTP client that does not follow
+// redirects. http.DefaultClient can preserve the Authorization header
+// across a same-host redirect even when it downgrades from HTTPS to HTTP,
+// which would bypass apiRequireHTTPS and leak the bearer token, so a 3xx
+// response is instead returned to the caller like any other status.
+func newNoRedirectHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 // apiRequireHTTPS rejects base URLs that would send the bearer token over

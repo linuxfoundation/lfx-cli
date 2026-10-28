@@ -146,6 +146,20 @@ func NewExampleCommand() *cli.Command {
 }
 ```
 
+### Goa-Backed Service Commands
+
+Commands for LFX v2 services (e.g. `lfx query-svc`) import the service's
+Goa-generated module and call its `Build<Method>Payload` functions rather
+than building payload structs by hand, so Goa's validation applies. Each
+service is a `goaService` with a list of `goaEndpointSpec`s (see
+`internal/commands/goa.go` and `query.go`). A spec's `Args` table must list
+the builder's parameters in signature order; `TestGoaBuilderSignatures`
+checks this against the generated source, since swapped string parameters
+still compile. Register new services' specs in that test. Hand-written
+example invocations go in `goaService.Examples`, not in the specs, and are
+rendered into the command's `UsageText` so they appear in both `--help` and
+`lfx docs`.
+
 ### Package Comments
 
 Every non-test (`*.go`, not `*_test.go`) file in a package must start with
@@ -235,7 +249,9 @@ release binaries may be missing even though the GitHub Release exists.
 3. **Dependencies**: Run `go get -u ./... && go mod tidy` before every PR to
    keep dependencies current. This upgrades module dependencies only, not the
    Go toolchain itself (`go.mod`'s `go` directive) -- see the toolchain policy
-   below before touching that.
+   below before touching that. When any `lfx-v2-*` service module changes,
+   follow `.agents/skills/upgrade-maintenance/SKILL.md` to reconcile the
+   Goa-backed commands, and always run `make test`.
 4. **Go toolchain version**: Follow the `lfx-megalinter` skill's Go version
    policy. It sets `go.mod` to the latest patch of the previous stable Go
    minor and caps it at the minor bundled by the pinned MegaLinter release.

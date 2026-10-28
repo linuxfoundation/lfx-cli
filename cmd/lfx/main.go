@@ -42,6 +42,7 @@ func main() {
 		Commands: []*cli.Command{
 			commands.NewAuthCommand(),
 			commands.NewAPICommand(),
+			commands.NewQueryServiceCommand(),
 			commands.NewDocsCommand(),
 		},
 	}

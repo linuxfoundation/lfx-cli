@@ -71,6 +71,26 @@ launching them; control characters in login instructions are escaped.
 login's environment (see `lfx auth environments`); the base URL is not
 configurable per call.
 
+### Service commands
+
+Some LFX v2 services also have dedicated commands, with a flag for each API
+parameter and validation before the request is sent. Like `lfx api`, they
+use the logged-in environment, print the JSON response, and accept
+`--query`/`-q` to filter it with a gjson expression.
+
+```bash
+# Find a project by its slug, printing its entity ID (project:<project_uid>).
+lfx query-svc query-resources --type project --filters-all slug:tlf -q 'resources.0.id'
+
+# Number of child projects for a given project.
+lfx query-svc query-resources-count --type project --parent <entity-id>
+
+# Find committees with "board" in the name for a given project.
+lfx query-svc query-resources --type committee --parent <entity-id> --name board
+```
+
+Run `lfx query-svc --help` to list the available query service commands.
+
 Credentials (refresh token, cached access token) are stored in your
 operating system's credential store by default (macOS Keychain, Windows
 Credential Manager, Linux Secret Service/KWallet/`pass`). Which of these is
