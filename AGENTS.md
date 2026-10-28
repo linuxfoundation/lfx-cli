@@ -155,7 +155,10 @@ service is a `goaService` with a list of `goaEndpointSpec`s (see
 `internal/commands/goa.go` and `query.go`). A spec's `Args` table must list
 the builder's parameters in signature order; `TestGoaBuilderSignatures`
 checks this against the generated source, since swapped string parameters
-still compile. Register new services' specs in that test. Hand-written
+still compile. Register new services' specs in that test.
+`TestGoaFlagsToBuilderArgs` covers flag-to-builder conversion once per
+argument kind with a stand-in builder; new services and endpoints do not
+need their own payload tests, only a new argument kind does. Hand-written
 example invocations go in `goaService.Examples`, not in the specs, and are
 rendered into the command's `UsageText` so they appear in both `--help` and
 `lfx docs`. Each service also gets its own subsection under "Service

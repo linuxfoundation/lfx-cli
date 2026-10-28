@@ -120,7 +120,7 @@ func queryServiceEndpoints() []goaEndpointSpec[*queryhttpclient.Client] {
 			Args: []goaBuilderArg{
 				queryVersionArg("querySvcQueryOrgsVersion"),
 				{Param: "querySvcQueryOrgsName", Kind: goaArgString, Flag: "name", Usage: "Organization name"},
-				{Param: "querySvcQueryOrgsDomain", Kind: goaArgString, Flag: "domain", Usage: "Organization domain or website URL"},
+				{Param: "querySvcQueryOrgsDomain", Kind: goaArgString, Flag: "domain", Usage: "Organization domain name, e.g. example.com (no scheme or path)"},
 				{Param: "querySvcQueryOrgsBearerToken", Kind: goaArgBearerToken},
 			},
 		},
