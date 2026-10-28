@@ -7,16 +7,11 @@ license: MIT
 # Upgrade Maintenance
 
 lfx-cli exposes LFX v2 services as commands by importing each service's
-Goa-generated Go module, the same modules lfx-mcp imports. The two repos
-use them differently, so their upgrade risks differ:
-
-- **lfx-mcp** builds the typed payload structs itself (`&svc.FooPayload{...}`).
-  A new upstream field compiles cleanly and is silently left unset.
-- **lfx-cli** calls the generated `Build<Method>Payload` functions in
-  `gen/http/<svc>/client/cli.go`. They take one `string` per parameter, in
-  order, and apply Goa's validation and type parsing. A change in parameter
-  count breaks the build or the test, but **two parameters swapping places
-  still compiles**, sending a flag's value to the wrong field.
+Goa-generated Go module and calling the generated `Build<Method>Payload`
+functions in `gen/http/<svc>/client/cli.go`. They take one `string` per
+parameter, in order, and apply Goa's validation and type parsing. A change
+in parameter count breaks the build or the test, but **two parameters
+swapping places still compiles**, sending a flag's value to the wrong field.
 
 lfx-cli therefore never calls a builder positionally. Each endpoint has an
 ordered `[]goaBuilderArg` table (e.g. `queryServiceEndpoints` in
@@ -70,9 +65,9 @@ fail `TestGoaBuilderSignatures`.
   (`MethodNames`), then rename or delete the spec.
 - **`NewClient` signature changed** in `gen/http/<svc>/client/client.go`:
   update the service's `goaService.NewClient`. lfx-cli calls the HTTP-level
-  `NewClient` (scheme, host, doer, encoder, decoder, restore), so unlike
-  lfx-mcp it is **not** affected when the service-level `NewClient` gains a
-  positional endpoint argument.
+  `NewClient` (scheme, host, doer, encoder, decoder, restore), so it is
+  **not** affected when the service-level `NewClient` gains a positional
+  endpoint argument.
 
 ### Step 2.2: `TestGoaBuilderSignatures` failures
 
@@ -139,18 +134,18 @@ that the generator's conventions still hold:
 ### Step 2.6: Response changes
 
 Commands print the service's raw JSON response (`rawBodyDoer`), not
-re-encoded structs, so new response fields appear automatically. Unlike
-lfx-mcp's view-mapping functions, nothing needs updating.
+re-encoded structs, so new response fields appear automatically and nothing
+needs updating.
 
 ## Write commands (fetch-then-PUT)
 
 No write commands exist yet. When they are added, any command that GETs a
 resource, merges flag values into it and PUTs it back to a full-replace
-endpoint must decode that GET strictly, rejecting unknown fields as
-lfx-mcp does (lfx-mcp#196). Otherwise an outdated lfx silently erases fields
-it doesn't know about. Endpoints where the server merges partial updates
-(e.g. member-service key contacts) don't need this. When they exist, this
-skill must cover reconciling them too.
+endpoint must decode that GET strictly, rejecting unknown fields. Otherwise
+an outdated lfx silently erases fields it doesn't know about. Endpoints
+where the server merges partial updates (e.g. member-service key contacts)
+don't need this. When they exist, this skill must cover reconciling them
+too.
 
 ## Phase 3: Verify and summarize
 
