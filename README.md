@@ -37,6 +37,10 @@ go install github.com/linuxfoundation/lfx-cli/cmd/lfx@latest
 
 ## Usage
 
+Run `lfx --help` or `lfx <command> --help` for full details on any command.
+
+### Authentication
+
 ```bash
 # Log in via the Auth0 Device Code flow.
 lfx auth login
@@ -44,9 +48,13 @@ lfx auth login
 # Automatically open the HTTPS verification URL in your default browser.
 lfx auth login --web
 
-# Log in against a non-production environment (aliases accepted).
+# Log in against a non-production environment (aliases accepted). Later
+# commands send requests to the API for the environment you logged in to.
 lfx auth login --env staging   # also: stage, stg
 lfx auth login --env dev       # also: develop, development
+
+# List the available environments and their APIs.
+lfx auth environments
 
 # Show the current authentication status.
 lfx auth status
@@ -56,40 +64,11 @@ lfx auth token
 
 # Log out and remove stored credentials.
 lfx auth logout
-
-# Make an authenticated call to an LFX platform API endpoint.
-lfx api '/my-grants?v=1&object_type=project'
-lfx api /projects --field name=example   # auto-promotes to POST
-lfx api -X PUT /projects/123 --input - -H "If-Match: <ver>" < input.json  # Content-Type: application/json is added automatically
 ```
 
 Automatic browser opening accepts only absolute HTTPS URLs with a hostname.
 Other verification URI values are displayed for manual inspection without
 launching them; control characters in login instructions are escaped.
-
-`lfx api` always sends requests to the compiled-in default API for the
-login's environment (see `lfx auth environments`); the base URL is not
-configurable per call.
-
-### Service commands
-
-Some LFX v2 services also have dedicated commands, with a flag for each API
-parameter and validation before the request is sent. Like `lfx api`, they
-use the logged-in environment, print the JSON response, and accept
-`--query`/`-q` to filter it with a gjson expression.
-
-```bash
-# Find a project by its slug, printing its entity ID (project:<project_uid>).
-lfx query-svc query-resources --type project --filters-all slug:tlf -q 'resources.0.id'
-
-# Number of child projects for a given project.
-lfx query-svc query-resources-count --type project --parent <entity-id>
-
-# Find committees with "board" in the name for a given project.
-lfx query-svc query-resources --type committee --parent <entity-id> --name board
-```
-
-Run `lfx query-svc --help` to list the available query service commands.
 
 Credentials (refresh token, cached access token) are stored in your
 operating system's credential store by default (macOS Keychain, Windows
@@ -110,7 +89,37 @@ lfx auth login --insecure-storage
 lfx auth login --backend=keychain
 ```
 
-Run `lfx --help` or `lfx <command> --help` for full details on any command.
+### Raw API calls
+
+```bash
+# Make an authenticated call to an LFX platform API endpoint.
+lfx api '/my-grants?v=1&object_type=project'
+lfx api /projects --field name=example   # auto-promotes to POST
+lfx api -X PUT /projects/123 --input - -H "If-Match: <ver>" < input.json  # Content-Type: application/json is added automatically
+```
+
+### Service commands
+
+LFX v2 services have dedicated commands, with a flag for each API parameter
+and validation before the request is sent. Like `lfx api`, they use the
+logged-in environment, print the JSON response, and accept `--query`/`-q` to
+filter it with a gjson expression. Commands for more services are being
+added; until a service has its own commands, use `lfx api`.
+
+#### Query service
+
+```bash
+# Find a project by its slug, printing its entity ID (project:<project_uid>).
+lfx query-svc query-resources --type project --filters-all slug:tlf -q 'resources.0.id'
+
+# Number of child projects for a given project.
+lfx query-svc query-resources-count --type project --parent <entity-id>
+
+# Find committees with "board" in the name for a given project.
+lfx query-svc query-resources --type committee --parent <entity-id> --name board
+```
+
+Run `lfx query-svc --help` to list the available query service commands.
 
 ## Development
 

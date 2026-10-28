@@ -158,7 +158,8 @@ checks this against the generated source, since swapped string parameters
 still compile. Register new services' specs in that test. Hand-written
 example invocations go in `goaService.Examples`, not in the specs, and are
 rendered into the command's `UsageText` so they appear in both `--help` and
-`lfx docs`.
+`lfx docs`. Each service also gets its own subsection under "Service
+commands" in `README.md`, repeating those examples.
 
 ### Package Comments
 
