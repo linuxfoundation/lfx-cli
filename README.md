@@ -100,7 +100,8 @@ LFX v2 services have dedicated commands, with a flag for each API parameter
 and validation before the request is sent. Like `lfx api`, they use the
 logged-in environment, print the JSON response, and accept `--query`/`-q` to
 filter it with a gjson expression. Commands for more services are being
-added; until a service has its own commands, use `lfx api`.
+added; until a service has its own commands, use `lfx api`. Run
+`lfx <service> --help` to list a service's commands.
 
 #### Query service
 
@@ -114,8 +115,6 @@ lfx query-svc query-resources-count --type project --parent <entity-id>
 # Find committees with "board" in the name for a given project.
 lfx query-svc query-resources --type committee --parent <entity-id> --name board
 ```
-
-Run `lfx query-svc --help` to list the available query service commands.
 
 ## Development
 

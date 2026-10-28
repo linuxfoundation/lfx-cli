@@ -20,15 +20,15 @@ var queryService = goaService[*queryhttpclient.Client]{
 	},
 	Examples: []goaExample{
 		{
-			Description: "Find a project by its slug, printing its entity ID (project:<project_uid>)",
+			Description: "Find a project by its slug, printing its entity ID (project:<project_uid>).",
 			Command:     "lfx query-svc query-resources --type project --filters-all slug:tlf -q 'resources.0.id'",
 		},
 		{
-			Description: "Number of child projects for a given project",
+			Description: "Number of child projects for a given project.",
 			Command:     "lfx query-svc query-resources-count --type project --parent <entity-id>",
 		},
 		{
-			Description: `Find committees with "board" in the name for a given project`,
+			Description: `Find committees with "board" in the name for a given project.`,
 			Command:     "lfx query-svc query-resources --type committee --parent <entity-id> --name board",
 		},
 	},

@@ -162,7 +162,8 @@ need their own payload tests, only a new argument kind does. Hand-written
 example invocations go in `goaService.Examples`, not in the specs, and are
 rendered into the command's `UsageText` so they appear in both `--help` and
 `lfx docs`. Each service also gets its own subsection under "Service
-commands" in `README.md`, repeating those examples.
+commands" in `README.md` with the same examples; when changing either,
+update the other so the README and `--help` stay identical.
 
 ### Package Comments
 
