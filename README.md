@@ -96,7 +96,7 @@ lfx api -X PUT /projects/123 --input - -H "If-Match: <ver>" < input.json  # Cont
 
 ### Service commands
 
-LFX v2 services have dedicated commands, with a flag for each API parameter
+LFX services have dedicated commands, with a flag for each API parameter
 and validation before the request is sent. Like `lfx api`, they use the
 logged-in environment, print the JSON response, and accept `--query`/`-q` to
 filter it with a gjson expression. Commands for more services are being
