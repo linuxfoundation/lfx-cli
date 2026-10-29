@@ -14,6 +14,8 @@
 #                        the latest release.
 #   LFX_CLI_INSTALL_DIR Directory to install the "lfx" binary into. Defaults
 #                        to /usr/local/bin if writable, else ~/.local/bin.
+#   LFX_CLI_SKIP_COMPLETION
+#                        Set to 1 to skip installing shell completion.
 
 set -eu
 
@@ -162,5 +164,50 @@ case ":${PATH}:" in
 *":${install_dir}:"*) ;;
 *) log "note: ${install_dir} is not in your PATH; add it, e.g.: export PATH=\"\$PATH:${install_dir}\"" ;;
 esac
+
+# Install shell completion for the user's login shell, without ever failing
+# the install. Only user-level locations that need no sudo are written to; if
+# the shell has no well-known location, print how to enable it instead of
+# guessing.
+install_completion() {
+	[ "${LFX_CLI_SKIP_COMPLETION:-}" = "1" ] && return 0
+	[ "$os" = "windows" ] && return 0
+
+	shell_name=$(basename "${SHELL:-}")
+	case "$shell_name" in
+	bash)
+		comp_dir="${XDG_DATA_HOME:-${HOME}/.local/share}/bash-completion/completions"
+		comp_file="${comp_dir}/${BINARY_NAME}"
+		;;
+	fish)
+		comp_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/fish/completions"
+		comp_file="${comp_dir}/${BINARY_NAME}.fish"
+		;;
+	zsh)
+		log "To enable zsh completion, add this to ~/.zshrc:"
+		log "  source <(${BINARY_NAME} completion zsh)"
+		return 0
+		;;
+	*)
+		log "To enable shell completion, see: ${BINARY_NAME} completion --help"
+		return 0
+		;;
+	esac
+
+	if mkdir -p "$comp_dir" 2>/dev/null &&
+		"$dest" completion "$shell_name" >"${work_dir}/completion" 2>/dev/null &&
+		[ -s "${work_dir}/completion" ] &&
+		cp "${work_dir}/completion" "$comp_file" 2>/dev/null; then
+		if [ "$shell_name" = "bash" ]; then
+			log "Installed bash completion to ${comp_file} (requires bash-completion v2 to be installed and loaded)"
+		else
+			log "Installed ${shell_name} completion to ${comp_file}"
+		fi
+	else
+		log "note: could not install ${shell_name} completion; run '${BINARY_NAME} completion --help' to set it up manually."
+	fi
+}
+
+install_completion
 
 log "Run '${BINARY_NAME} --help' to get started."
