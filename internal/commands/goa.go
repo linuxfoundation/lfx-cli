@@ -291,7 +291,7 @@ func (d *rawBodyDoer) Do(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxGoaResponseBodyBytes))
+	body, err := readLimitedBody(resp.Body, maxGoaResponseBodyBytes)
 	_ = resp.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("read response body: %w", err)

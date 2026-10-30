@@ -31,6 +31,11 @@ const (
 	apiQueryFlagName    = "query"
 )
 
+// maxAPIResponseBodyBytes caps how much of a --query response body `lfx api`
+// buffers in memory, since gjson needs the whole body and an unbounded read
+// could otherwise exhaust memory on a huge or misbehaving response.
+const maxAPIResponseBodyBytes = 64 << 20 // 64 MiB
+
 // apiAllowedMethods enumerates the HTTP methods `lfx api` accepts via
 // --method. PATCH is deliberately excluded: the LFX API, by design,
 // currently includes no PATCH endpoints, favoring PUT with ETag/If-Match
@@ -169,7 +174,7 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 	if query := cmd.String(apiQueryFlagName); query != "" {
 		// --query needs the whole body in memory to run gjson against
 		// it, so buffer and filter before writing.
-		respBody, err := io.ReadAll(resp.Body)
+		respBody, err := readLimitedBody(resp.Body, maxAPIResponseBodyBytes)
 		if err != nil {
 			return fmt.Errorf("read response body: %w", err)
 		}
@@ -315,6 +320,22 @@ func coerceFieldValue(value string) any {
 		return json.Number(value)
 	}
 	return value
+}
+
+// readLimitedBody reads r up to max bytes, returning a distinct error if the
+// body is larger than that instead of silently truncating it. A plain
+// io.LimitReader would return a truncated-but-valid-looking read with no
+// error at the limit, which can surface downstream as a confusing decode
+// failure instead of identifying the client-side size limit as the cause.
+func readLimitedBody(r io.Reader, max int64) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > max {
+		return nil, fmt.Errorf("response body exceeds %d byte limit", max)
+	}
+	return body, nil
 }
 
 // resolveAuthenticatedBaseURL resolves the access token and logged-in
