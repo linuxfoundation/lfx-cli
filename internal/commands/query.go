@@ -14,7 +14,6 @@ import (
 var queryService = goaService[*queryhttpclient.Client]{
 	Name:  "query-svc",
 	Usage: "Query LFX v2 resources and organizations via the query service",
-	Path:  "query",
 	NewClient: func(scheme, host string, doer goahttp.Doer) *queryhttpclient.Client {
 		return queryhttpclient.NewClient(scheme, host, doer, goahttp.RequestEncoder, goahttp.ResponseDecoder, false)
 	},

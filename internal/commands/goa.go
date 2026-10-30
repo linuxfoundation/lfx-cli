@@ -60,9 +60,6 @@ type goaService[C any] struct {
 	Name string
 	// Usage is the help text for the service's command group.
 	Usage string
-	// Path is the path prefix of the service under the environment's API
-	// base URL, e.g. "query".
-	Path string
 	// NewClient builds the generated HTTP client for the service.
 	NewClient func(scheme, host string, doer goahttp.Doer) C
 	// Examples are common invocations shown in the service command's help.
@@ -157,6 +154,8 @@ func (s goaService[C]) endpointCommand(spec goaEndpointSpec[C]) *cli.Command {
 		case goaArgJSONList:
 			flags = append(flags, &cli.StringSliceFlag{Name: arg.Flag, Usage: arg.Usage + " (repeatable)"})
 		case goaArgBearerToken:
+		default:
+			panic(fmt.Sprintf("unsupported argument kind %d for %s", arg.Kind, arg.Param))
 		}
 	}
 	flags = append(flags, goaOutputFlags()...)
@@ -185,16 +184,15 @@ func (s goaService[C]) run(ctx context.Context, cmd *cli.Command, spec goaEndpoi
 	if err != nil {
 		return err
 	}
-	serviceURL, err := apiJoinURL(baseURL, s.Path)
-	if err != nil {
+	if err := apiRequireHTTPS(baseURL); err != nil {
 		return err
 	}
-	if err := apiRequireHTTPS(serviceURL); err != nil {
-		return err
-	}
-	parsed, err := url.Parse(serviceURL)
+	// The generated client's endpoint already emits its full request path
+	// (e.g. QueryResourcesQuerySvcPath returns "/query/resources"), so
+	// only baseURL's scheme and host are passed to NewClient.
+	parsed, err := url.Parse(baseURL)
 	if err != nil {
-		return fmt.Errorf("invalid service URL %q: %w", serviceURL, err)
+		return fmt.Errorf("invalid base URL %q: %w", baseURL, err)
 	}
 
 	values, err := goaBuilderValues(cmd, spec.Args, token)
@@ -288,13 +286,19 @@ type rawBodyDoer struct {
 	body  []byte
 }
 
+// maxGoaResponseBodyBytes caps how much of a response body rawBodyDoer
+// buffers in memory, since the generated client has no size limit of its
+// own and a malicious or misbehaving service could otherwise exhaust
+// memory.
+const maxGoaResponseBodyBytes = 64 << 20 // 64 MiB
+
 // Do implements goahttp.Doer.
 func (d *rawBodyDoer) Do(req *http.Request) (*http.Response, error) {
 	resp, err := d.inner.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxGoaResponseBodyBytes))
 	_ = resp.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("read response body: %w", err)
