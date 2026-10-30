@@ -31,6 +31,11 @@ const (
 	apiQueryFlagName    = "query"
 )
 
+// maxAPIResponseBodyBytes caps how much of a --query response body `lfx api`
+// buffers in memory, since gjson needs the whole body and an unbounded read
+// could otherwise exhaust memory on a huge or misbehaving response.
+const maxAPIResponseBodyBytes = 64 << 20 // 64 MiB
+
 // apiAllowedMethods enumerates the HTTP methods `lfx api` accepts via
 // --method. PATCH is deliberately excluded: the LFX API, by design,
 // currently includes no PATCH endpoints, favoring PUT with ETag/If-Match
@@ -115,16 +120,8 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("invalid --%s %q (must be one of GET, POST, PUT, DELETE)", apiMethodFlagName, method)
 	}
 
-	token, env, err := resolveAccessToken(ctx, cmd)
+	token, baseURL, err := resolveAuthenticatedBaseURL(ctx, cmd)
 	if err != nil {
-		return err
-	}
-
-	baseURL, err := defaultAudienceForEnvironment(env)
-	if err != nil {
-		return err
-	}
-	if err := apiRequireHTTPS(baseURL); err != nil {
 		return err
 	}
 
@@ -166,17 +163,7 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	// Don't auto-follow redirects: http.DefaultClient can preserve the
-	// Authorization header across a same-host redirect even when it
-	// downgrades from HTTPS to HTTP, which would bypass
-	// apiRequireHTTPS and leak the bearer token. A 3xx response is
-	// instead reported like any other non-2xx status below.
-	client := &http.Client{
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	resp, err := client.Do(req)
+	resp, err := newNoRedirectHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
@@ -187,17 +174,12 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 	if query := cmd.String(apiQueryFlagName); query != "" {
 		// --query needs the whole body in memory to run gjson against
 		// it, so buffer and filter before writing.
-		respBody, err := io.ReadAll(resp.Body)
+		respBody, err := readLimitedBody(resp.Body, maxAPIResponseBodyBytes)
 		if err != nil {
 			return fmt.Errorf("read response body: %w", err)
 		}
-		output := []byte(gjson.GetBytes(respBody, query).String())
-		// Write output verbatim with no added trailing newline,
-		// matching `gh api -q` so a scalar result (e.g. a single
-		// field) can be captured cleanly by a shell command
-		// substitution without a stray newline.
-		if _, err := os.Stdout.Write(output); err != nil {
-			return fmt.Errorf("write response body: %w", err)
+		if err := writeQueryOutput(respBody, query); err != nil {
+			return err
 		}
 	} else {
 		// Stream the body straight through rather than buffering it
@@ -215,6 +197,18 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		return cli.Exit(fmt.Sprintf("HTTP %d", resp.StatusCode), 1)
 	}
 
+	return nil
+}
+
+// writeQueryOutput writes the result of a gjson query over body to stdout.
+// Output is written verbatim with no added trailing newline, matching
+// `gh api -q`, so a scalar result can be captured cleanly by a shell
+// command substitution.
+func writeQueryOutput(body []byte, query string) error {
+	output := []byte(gjson.GetBytes(body, query).String())
+	if _, err := os.Stdout.Write(output); err != nil {
+		return fmt.Errorf("write response body: %w", err)
+	}
 	return nil
 }
 
@@ -328,6 +322,43 @@ func coerceFieldValue(value string) any {
 	return value
 }
 
+// readLimitedBody reads r up to max bytes, returning a distinct error if the
+// body is larger than that instead of silently truncating it. A plain
+// io.LimitReader would return a truncated-but-valid-looking read with no
+// error at the limit, which can surface downstream as a confusing decode
+// failure instead of identifying the client-side size limit as the cause.
+func readLimitedBody(r io.Reader, limit int64) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("response body exceeds %d byte limit", limit)
+	}
+	return body, nil
+}
+
+// resolveAuthenticatedBaseURL resolves the access token and logged-in
+// environment via `lfx auth`, then returns the token alongside the
+// environment's compiled-in default API base URL, after checking that the
+// base URL meets apiRequireHTTPS's transport requirements. Used by both
+// `lfx api` and every Goa-backed service command, since they share the same
+// authentication and base-URL resolution.
+func resolveAuthenticatedBaseURL(ctx context.Context, cmd *cli.Command) (token, baseURL string, err error) {
+	token, env, err := resolveAccessToken(ctx, cmd)
+	if err != nil {
+		return "", "", err
+	}
+	baseURL, err = defaultAudienceForEnvironment(env)
+	if err != nil {
+		return "", "", err
+	}
+	if err := apiRequireHTTPS(baseURL); err != nil {
+		return "", "", err
+	}
+	return token, baseURL, nil
+}
+
 // apiJoinURL joins base and path into a single URL, ensuring exactly one
 // slash separates them. path is passed through unmodified (aside from a
 // leading-slash trim) rather than parsed/re-escaped: base is already
@@ -341,6 +372,19 @@ func apiJoinURL(base, path string) (string, error) {
 		return "", errors.New("empty base URL")
 	}
 	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/"), nil
+}
+
+// newNoRedirectHTTPClient returns an HTTP client that does not follow
+// redirects. http.DefaultClient can preserve the Authorization header
+// across a same-host redirect even when it downgrades from HTTPS to HTTP,
+// which would bypass apiRequireHTTPS and leak the bearer token, so a 3xx
+// response is instead returned to the caller like any other status.
+func newNoRedirectHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 // apiRequireHTTPS rejects base URLs that would send the bearer token over
