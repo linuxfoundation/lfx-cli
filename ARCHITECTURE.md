@@ -100,7 +100,7 @@ sequenceDiagram
     User->>CLI: lfx auth login
     CLI->>Auth0: POST /oauth/device/code
     Auth0-->>CLI: Device code, user code, verification URL
-    CLI-->>User: Display code and URL; optionally open browser
+    CLI-->>User: "Display code and URL, optionally open browser"
     User->>Auth0: Complete authentication in browser
     loop Until completion, denial, or expiry
         CLI->>Auth0: POST /oauth/token
