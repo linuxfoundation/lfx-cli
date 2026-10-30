@@ -327,13 +327,13 @@ func coerceFieldValue(value string) any {
 // io.LimitReader would return a truncated-but-valid-looking read with no
 // error at the limit, which can surface downstream as a confusing decode
 // failure instead of identifying the client-side size limit as the cause.
-func readLimitedBody(r io.Reader, max int64) ([]byte, error) {
-	body, err := io.ReadAll(io.LimitReader(r, max+1))
+func readLimitedBody(r io.Reader, limit int64) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(body)) > max {
-		return nil, fmt.Errorf("response body exceeds %d byte limit", max)
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("response body exceeds %d byte limit", limit)
 	}
 	return body, nil
 }
