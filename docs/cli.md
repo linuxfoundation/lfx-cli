@@ -130,6 +130,170 @@ Make an authenticated call to an LFX platform API endpoint
 
 Shows a list of commands or help for one command
 
+## query-svc
+
+Query LFX v2 resources and organizations via the query service
+
+    lfx query-svc <command> [options]
+    
+    Examples:
+      # Find a project by its slug, printing its entity ID (project:<project_uid>).
+      lfx query-svc query-resources --type project --filters-all slug:tlf -q 'resources.0.id'
+    
+      # Number of child projects for a given project.
+      lfx query-svc query-resources-count --type project --parent <entity-id>
+    
+      # Find committees with "board" in the name for a given project.
+      lfx query-svc query-resources --type committee --parent <entity-id> --name board
+
+**--help, -h**: show help
+
+### query-resources
+
+Locate resources by their type or parent, or search by display name or alias
+
+**--cel-filter**="": CEL expression over data, resource_type, and id
+
+**--date-field**="": Data field to filter by date (requires --date-from or --date-to)
+
+**--date-from**="": Inclusive start, ISO 8601 date or datetime
+
+**--date-to**="": Inclusive end, ISO 8601 date or datetime
+
+**--filter-grants**="": Only resources with direct FGA grants ('direct'); requires --type
+
+**--filters**="": Data field filter as 'field:value' (repeatable)
+
+**--filters-all**="": Data field filter as 'field:value', all must match (repeatable)
+
+**--filters-or**="": Data field filter as 'field:value', at least one must match (repeatable)
+
+**--help, -h**: show help
+
+**--name**="": Resource name or alias; supports typeahead
+
+**--page-size**="": Number of results per page (1-1000) (default: "50")
+
+**--page-token**="": Opaque token for the next page
+
+**--parent**="": Parent reference, e.g. project:<uid>
+
+**--query, -q**="": Filter the response body through a gjson expression before output
+
+**--sort**="": Sort order: name_asc, name_desc, updated_asc, updated_desc, best_match (default: "name_asc")
+
+**--tags**="": Tag to match with OR logic (repeatable)
+
+**--tags-all**="": Tag to match with AND logic (repeatable)
+
+**--type**="": Resource type to search
+
+**--version**="": Version of the API (default: "1")
+
+#### help, h
+
+Shows a list of commands or help for one command
+
+### query-resources-count
+
+Count matching resources, optionally grouped by tag or with a cardinality metric
+
+**--date-field**="": Data field to filter by date (requires --date-from or --date-to)
+
+**--date-from**="": Inclusive start, ISO 8601 date or datetime
+
+**--date-to**="": Inclusive end, ISO 8601 date or datetime
+
+**--filters**="": Data field filter as 'field:value' (repeatable)
+
+**--filters-all**="": Data field filter as 'field:value', all must match (repeatable)
+
+**--filters-or**="": Data field filter as 'field:value', at least one must match (repeatable)
+
+**--group-by**="": Tag prefix to group the count by
+
+**--group-by-size**="": Maximum number of groups (1-1000); requires --group-by
+
+**--help, -h**: show help
+
+**--metric**="": Metric to compute, e.g. cardinality:<tag_prefix>
+
+**--name**="": Resource name or alias; supports typeahead
+
+**--parent**="": Parent reference, e.g. project:<uid>
+
+**--query, -q**="": Filter the response body through a gjson expression before output
+
+**--tags**="": Tag to match with OR logic (repeatable)
+
+**--tags-all**="": Tag to match with AND logic (repeatable)
+
+**--type**="": Resource type to count
+
+**--version**="": Version of the API (default: "1")
+
+#### help, h
+
+Shows a list of commands or help for one command
+
+### query-membership-summary
+
+Summarize membership records per organization and project
+
+**--b2b-org-uid**="": B2B organization UID to summarize
+
+**--help, -h**: show help
+
+**--page-token**="": Opaque token for the next page
+
+**--project-uid**="": Project UID to summarize
+
+**--query, -q**="": Filter the response body through a gjson expression before output
+
+**--version**="": Version of the API (default: "1")
+
+#### help, h
+
+Shows a list of commands or help for one command
+
+### query-orgs
+
+Locate a single organization by name or domain
+
+**--domain**="": Organization domain name, e.g. example.com (no scheme or path)
+
+**--help, -h**: show help
+
+**--name**="": Organization name
+
+**--query, -q**="": Filter the response body through a gjson expression before output
+
+**--version**="": Version of the API (default: "1")
+
+#### help, h
+
+Shows a list of commands or help for one command
+
+### suggest-orgs
+
+Get organization suggestions for a typeahead query
+
+**--help, -h**: show help
+
+**--query, -q**="": Filter the response body through a gjson expression before output
+
+**--search**="": Search query (required)
+
+**--version**="": Version of the API (default: "1")
+
+#### help, h
+
+Shows a list of commands or help for one command
+
+### help, h
+
+Shows a list of commands or help for one command
+
 ## help, h
 
 Shows a list of commands or help for one command
