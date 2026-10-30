@@ -80,22 +80,22 @@ MOD=$(go list -m -f '{{.Dir}}' github.com/linuxfoundation/lfx-v2-SERVICE)
 sed -n '/^func BuildFooPayload/,/^}/p' "$MOD"/gen/http/*/client/cli.go
 ```
 
-| Difference | Action |
-|---|---|
-| Parameter added | Add a `goaBuilderArg` at the same position. Choose `Kind` per Step 2.3, a `Flag` matching Goa's own flag name (see `gen/http/cli/*/cli.go`) unless that name is in `goaReservedFlagNames` (e.g. `--query`, reserved for output filtering; the test fails on a collision), `Usage` from the field comment in `gen/<svc>/service.go`, and `Default` only if Goa's CLI flag has a non-`REQUIRED`, non-empty default. Flag names that differ from Goa's need a human decision. |
-| Parameter removed | Delete the entry and its flag. Removing a flag breaks scripts that use it, so mention it in the release notes. Also update any `goaService.Examples` that use the flag. |
-| Same names, new order | Reorder the table to match. The flags themselves don't change. |
-| Renamed | Check whether the field kept its meaning (`service.go`, the service's changelog or PR). If it did, update `Param` and keep the flag name so existing scripts keep working. If not, treat it as a removal plus an addition. |
+| Difference            | Action                                                                                                                                                                                                                                                                                                                                         |
+|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Parameter added       | Add a `goaBuilderArg` at the same position: `Kind` per Step 2.3, `Flag` matching Goa's own flag name (`gen/http/cli/*/cli.go`) unless reserved (e.g. `--query`), `Usage` from `gen/<svc>/service.go`'s field comment, and `Default` only for a non-`REQUIRED`, non-empty Goa default. A flag name differing from Goa's needs a human decision. |
+| Parameter removed     | Delete the entry and its flag. Removing a flag breaks scripts that use it, so mention it in the release notes. Also update any `goaService.Examples` that use the flag.                                                                                                                                                                        |
+| Same names, new order | Reorder the table to match. The flags themselves don't change.                                                                                                                                                                                                                                                                                 |
+| Renamed               | Check whether the field kept its meaning (`service.go`, the service's changelog or PR). If it did, update `Param` and keep the flag name so existing scripts keep working. If not, treat it as a removal plus an addition.                                                                                                                     |
 
 ### Step 2.3: Choosing a `goaArgKind`
 
 Choose from how the builder parses the parameter, not from its name:
 
-| Builder body | Kind |
-|---|---|
-| Assigned directly, or parsed with `strconv` (ints, bools) | `goaArgString` (Goa does the parsing and range checks) |
-| `json.Unmarshal` into `[]string` | `goaArgJSONList` |
-| The `...BearerToken` parameter | `goaArgBearerToken` |
+| Builder body                                                      | Kind                                                                                                          |
+|-------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| Assigned directly, or parsed with `strconv` (ints, bools)         | `goaArgString` (Goa does the parsing and range checks)                                                        |
+| `json.Unmarshal` into `[]string`                                  | `goaArgJSONList`                                                                                              |
+| The `...BearerToken` parameter                                    | `goaArgBearerToken`                                                                                           |
 | `json.Unmarshal` into an object or request body (`...Body` param) | **Not supported yet.** Stop and raise it; write commands need a separate design (see "Write commands" below). |
 
 Builders treat `""` as unset for optional parameters, so lfx cannot send an

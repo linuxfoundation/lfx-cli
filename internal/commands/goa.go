@@ -176,15 +176,8 @@ func (s goaService[C]) endpointCommand(spec goaEndpointSpec[C]) *cli.Command {
 // the generated builder, calls the endpoint, and writes the raw response
 // body to stdout.
 func (s goaService[C]) run(ctx context.Context, cmd *cli.Command, spec goaEndpointSpec[C]) error {
-	token, env, err := resolveAccessToken(ctx, cmd)
+	token, baseURL, err := resolveAuthenticatedBaseURL(ctx, cmd)
 	if err != nil {
-		return err
-	}
-	baseURL, err := defaultAudienceForEnvironment(env)
-	if err != nil {
-		return err
-	}
-	if err := apiRequireHTTPS(baseURL); err != nil {
 		return err
 	}
 	// The generated client's endpoint already emits its full request path

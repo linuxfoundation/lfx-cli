@@ -115,16 +115,8 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("invalid --%s %q (must be one of GET, POST, PUT, DELETE)", apiMethodFlagName, method)
 	}
 
-	token, env, err := resolveAccessToken(ctx, cmd)
+	token, baseURL, err := resolveAuthenticatedBaseURL(ctx, cmd)
 	if err != nil {
-		return err
-	}
-
-	baseURL, err := defaultAudienceForEnvironment(env)
-	if err != nil {
-		return err
-	}
-	if err := apiRequireHTTPS(baseURL); err != nil {
 		return err
 	}
 
@@ -323,6 +315,27 @@ func coerceFieldValue(value string) any {
 		return json.Number(value)
 	}
 	return value
+}
+
+// resolveAuthenticatedBaseURL resolves the access token and logged-in
+// environment via `lfx auth`, then returns the token alongside the
+// environment's compiled-in default API base URL, after checking that the
+// base URL meets apiRequireHTTPS's transport requirements. Used by both
+// `lfx api` and every Goa-backed service command, since they share the same
+// authentication and base-URL resolution.
+func resolveAuthenticatedBaseURL(ctx context.Context, cmd *cli.Command) (token, baseURL string, err error) {
+	token, env, err := resolveAccessToken(ctx, cmd)
+	if err != nil {
+		return "", "", err
+	}
+	baseURL, err = defaultAudienceForEnvironment(env)
+	if err != nil {
+		return "", "", err
+	}
+	if err := apiRequireHTTPS(baseURL); err != nil {
+		return "", "", err
+	}
+	return token, baseURL, nil
 }
 
 // apiJoinURL joins base and path into a single URL, ensuring exactly one
