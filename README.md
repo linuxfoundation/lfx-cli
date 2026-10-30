@@ -116,6 +116,12 @@ lfx query-svc query-resources-count --type project --parent <entity-id>
 lfx query-svc query-resources --type committee --parent <entity-id> --name board
 ```
 
+## Shell completion
+
+The `install.sh` script attempts to set up shell completion for your login
+shell. If you installed `lfx` another way, or the installer could not do it,
+run `lfx completion --help` for the steps for your shell.
+
 ## Development
 
 ```bash
