@@ -185,8 +185,8 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 		// Stream the body straight through rather than buffering it
 		// all in memory first, since this command explicitly supports
 		// redirecting its output for large or binary responses.
-		if _, err := io.Copy(os.Stdout, resp.Body); err != nil {
-			return fmt.Errorf("write response body: %w", err)
+		if err := writeResponseOutput(resp.Body, true); err != nil {
+			return err
 		}
 	}
 
@@ -203,13 +203,12 @@ func runAPI(ctx context.Context, cmd *cli.Command) error {
 // writeQueryOutput writes the result of a gjson query over body to stdout.
 // Output is written verbatim with no added trailing newline, matching
 // `gh api -q`, so a scalar result can be captured cleanly by a shell
-// command substitution.
+// command substitution. On a terminal, control characters in the result
+// (which gjson decodes from JSON escapes such as \u001b) are escaped; see
+// writeResponseOutput.
 func writeQueryOutput(body []byte, query string) error {
-	output := []byte(gjson.GetBytes(body, query).String())
-	if _, err := os.Stdout.Write(output); err != nil {
-		return fmt.Errorf("write response body: %w", err)
-	}
-	return nil
+	output := gjson.GetBytes(body, query).String()
+	return writeResponseOutput(strings.NewReader(output), false)
 }
 
 // apiHasExplicitBody reports whether cmd was given an explicit

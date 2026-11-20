@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"reflect"
 	"runtime"
 	"strings"
@@ -206,10 +205,7 @@ func (s goaService[C]) run(ctx context.Context, cmd *cli.Command, spec goaEndpoi
 	if query := cmd.String(apiQueryFlagName); query != "" {
 		return writeQueryOutput(doer.body, query)
 	}
-	if _, err := os.Stdout.Write(doer.body); err != nil {
-		return fmt.Errorf("write response body: %w", err)
-	}
-	return nil
+	return writeResponseOutput(bytes.NewReader(doer.body), true)
 }
 
 // goaBuilderValues converts the command's flags into the positional string
