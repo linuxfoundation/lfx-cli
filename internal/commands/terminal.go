@@ -62,12 +62,23 @@ func copyTerminalSafe(w io.Writer, r io.Reader, allowCRLF bool) error {
 		if err := flushBeforeRead(1); err != nil {
 			return err
 		}
-		need := 1
-		if lead, _ := br.Peek(1); len(lead) == 1 {
-			need = runePeekLen(lead[0], allowCRLF)
-			if err := flushBeforeRead(need); err != nil {
-				return err
+		lead, err := br.Peek(1)
+		if len(lead) == 0 {
+			// A 1-byte Peek reports an error only when it returns no
+			// bytes. Handle it here: bufio clears an error once it is
+			// returned, so a later Peek could see EOF instead and
+			// report a cut-off response as complete.
+			if ferr := bw.Flush(); ferr != nil {
+				return ferr
 			}
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		need := runePeekLen(lead[0], allowCRLF)
+		if err := flushBeforeRead(need); err != nil {
+			return err
 		}
 		p, err := br.Peek(need)
 		if err != nil && err != io.EOF {
@@ -86,9 +97,6 @@ func copyTerminalSafe(w io.Writer, r io.Reader, allowCRLF bool) error {
 				return ferr
 			}
 			return err
-		}
-		if len(p) == 0 {
-			return bw.Flush()
 		}
 		var n int
 		out, n = appendTerminalSafe(out[:0], p, allowCRLF)

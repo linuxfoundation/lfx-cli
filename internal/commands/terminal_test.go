@@ -91,6 +91,41 @@ func TestCopyTerminalSafeReadError(t *testing.T) {
 	}
 }
 
+// dataThenErrReader returns data together with err on its first Read, and
+// io.EOF after that, like a connection that fails once and then reports EOF.
+type dataThenErrReader struct {
+	data string
+	err  error
+	done bool
+}
+
+func (r *dataThenErrReader) Read(p []byte) (int, error) {
+	if r.done {
+		return 0, io.EOF
+	}
+	r.done = true
+	return copy(p, r.data), r.err
+}
+
+func TestCopyTerminalSafeReadErrorNotLostToLaterEOF(t *testing.T) {
+	// bufio clears an error once it returns it, so a dropped error would
+	// let the next read's EOF report a cut-off response as complete.
+	boom := errors.New("boom")
+	for _, tc := range []struct{ data, want string }{
+		{data: "ok", want: "ok"},
+		{data: "o\xc4", want: `o\xc4`}, // error inside a multi-byte rune
+	} {
+		var buf bytes.Buffer
+		err := copyTerminalSafe(&buf, &dataThenErrReader{data: tc.data, err: boom}, true)
+		if !errors.Is(err, boom) {
+			t.Errorf("data %q: copyTerminalSafe error = %v, want %v", tc.data, err, boom)
+		}
+		if buf.String() != tc.want {
+			t.Errorf("data %q: output before error = %q, want %q", tc.data, buf.String(), tc.want)
+		}
+	}
+}
+
 // chanWriter sends a copy of each Write to a channel.
 type chanWriter chan []byte
 
