@@ -94,6 +94,11 @@ lfx api /projects --field name=example   # auto-promotes to POST
 lfx api -X PUT /projects/123 --input - -H "If-Match: <ver>" < input.json  # Content-Type: application/json is added automatically
 ```
 
+When output goes to a terminal, `lfx api` and the service commands print
+control characters in the response (such as ESC) as escaped text like
+`\x1b`, so response data can't change what the terminal shows. Redirected or
+piped output keeps the exact response bytes.
+
 ### Service commands
 
 LFX services have dedicated commands, with a flag for each API parameter
