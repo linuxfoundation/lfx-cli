@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"time"
 )
 
 // captureStdout runs fn with os.Stdout redirected to a pipe and with
@@ -87,6 +88,48 @@ func TestCopyTerminalSafeReadError(t *testing.T) {
 	}
 	if want := `ok\x1b`; buf.String() != want {
 		t.Errorf("output before error = %q, want %q", buf.String(), want)
+	}
+}
+
+// chanWriter sends a copy of each Write to a channel.
+type chanWriter chan []byte
+
+func (c chanWriter) Write(p []byte) (int, error) {
+	c <- append([]byte(nil), p...)
+	return len(p), nil
+}
+
+func TestCopyTerminalSafeShowsCompleteRunesBeforeMoreData(t *testing.T) {
+	// A response that sends a short chunk and stays open must have that
+	// chunk shown right away, not held back waiting for more bytes.
+	pr, pw := io.Pipe()
+	writes := make(chanWriter, 16)
+	done := make(chan error, 1)
+	go func() { done <- copyTerminalSafe(writes, pr, true) }()
+
+	for _, chunk := range []string{"ok\n", "ā"} {
+		if _, err := pw.Write([]byte(chunk)); err != nil {
+			t.Fatalf("write %q: %v", chunk, err)
+		}
+		var got []byte
+		for len(got) < len(chunk) {
+			select {
+			case w := <-writes:
+				got = append(got, w...)
+			case <-time.After(5 * time.Second):
+				t.Fatalf("chunk %q not shown while the reader stays open (got %q)", chunk, got)
+			}
+		}
+		if string(got) != chunk {
+			t.Errorf("shown %q, want %q", got, chunk)
+		}
+	}
+
+	if err := pw.Close(); err != nil {
+		t.Fatalf("close pipe writer: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("copyTerminalSafe: %v", err)
 	}
 }
 

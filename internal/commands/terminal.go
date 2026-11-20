@@ -42,21 +42,34 @@ func writeResponseOutput(r io.Reader, allowCRLF bool) error {
 }
 
 // copyTerminalSafe streams r to w one rune at a time, escaping control
-// characters with appendTerminalSafe. Peeking utf8.UTFMax bytes ahead keeps
-// multi-byte runes and CR LF pairs intact when they straddle reads.
+// characters with appendTerminalSafe. It peeks only as many bytes as the
+// next rune (or CR LF pair) needs, so multi-byte runes and CR LF pairs stay
+// intact when they straddle reads, and complete runes are shown without
+// waiting for more data.
 func copyTerminalSafe(w io.Writer, r io.Reader, allowCRLF bool) error {
 	br := bufio.NewReader(r)
 	bw := bufio.NewWriter(w)
 	out := make([]byte, 0, 8)
+	// flushBeforeRead shows what has been written so far when a Peek of
+	// need bytes would block on the next read.
+	flushBeforeRead := func(need int) error {
+		if br.Buffered() < need {
+			return bw.Flush()
+		}
+		return nil
+	}
 	for {
-		if br.Buffered() < utf8.UTFMax {
-			// The next Peek may block on the network, so first show
-			// whatever has already been received.
-			if err := bw.Flush(); err != nil {
+		if err := flushBeforeRead(1); err != nil {
+			return err
+		}
+		need := 1
+		if lead, _ := br.Peek(1); len(lead) == 1 {
+			need = runePeekLen(lead[0], allowCRLF)
+			if err := flushBeforeRead(need); err != nil {
 				return err
 			}
 		}
-		p, err := br.Peek(utf8.UTFMax)
+		p, err := br.Peek(need)
 		if err != nil && err != io.EOF {
 			// Show the bytes received before the error, as the
 			// verbatim io.Copy path would, then report it.
@@ -85,6 +98,25 @@ func copyTerminalSafe(w io.Writer, r io.Reader, allowCRLF bool) error {
 		if _, err := br.Discard(n); err != nil {
 			return err
 		}
+	}
+}
+
+// runePeekLen returns how many bytes copyTerminalSafe needs to see to handle
+// the rune starting with lead: the UTF-8 sequence length for a lead byte, or
+// 2 for a CR in allowCRLF mode so it can check for a following LF. A byte
+// that cannot start a valid sequence needs only itself.
+func runePeekLen(lead byte, allowCRLF bool) int {
+	switch {
+	case lead == '\r' && allowCRLF:
+		return 2
+	case lead < 0xC2 || lead > 0xF4:
+		return 1
+	case lead < 0xE0:
+		return 2
+	case lead < 0xF0:
+		return 3
+	default:
+		return utf8.UTFMax
 	}
 }
 
