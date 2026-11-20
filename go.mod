@@ -6,12 +6,12 @@ go 1.26.10
 
 require (
 	github.com/99designs/keyring v1.2.2
-	github.com/linuxfoundation/lfx-v2-query-service v0.4.33
-	github.com/tidwall/gjson v1.20.0
-	github.com/urfave/cli-docs/v3 v3.1.0
+	github.com/linuxfoundation/lfx-v2-query-service v0.4.34
+	github.com/tidwall/gjson v1.20.5
+	github.com/urfave/cli-docs/v3 v3.2.0
 	github.com/urfave/cli/v3 v3.14.0
 	goa.design/goa/v3 v3.34.0
-	golang.org/x/oauth2 v0.37.0
+	golang.org/x/oauth2 v0.38.0
 )
 
 require (
@@ -27,8 +27,8 @@ require (
 	github.com/mtibben/percent v0.2.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
-	github.com/tidwall/pretty v1.2.2 // indirect
+	github.com/tidwall/pretty v1.3.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/term v0.47.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/term v0.48.0 // indirect
 )
