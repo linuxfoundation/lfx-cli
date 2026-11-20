@@ -23,11 +23,11 @@ lfx [GLOBAL OPTIONS] [command [COMMAND OPTIONS]] [ARGUMENTS...]
 
 **--backend**="": Pin credential storage to a specific system backend (see 'lfx auth backends'); mutually exclusive with --insecure-storage
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
-**--insecure-storage**: Store & retrieve credentials in a plain (unencrypted) file instead of the system backend
+**--insecure-storage**: Store & retrieve credentials in a plain (unencrypted) file instead of the system backend (default: false)
 
-**--version, -v**: print the version
+**--version, -v**: print the version (default: false)
 
 
 # COMMANDS
@@ -36,19 +36,19 @@ lfx [GLOBAL OPTIONS] [command [COMMAND OPTIONS]] [ARGUMENTS...]
 
 Manage authentication with the LFX platform
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 ### login
 
 Log in to the LFX platform via the Auth0 Device Code flow
 
-**--env**="": Target environment; see 'lfx auth environments' for accepted values (default: "production")
+**--env**="": Target environment; see 'lfx auth environments' for accepted values (default: production)
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
-**--web, -w**: Automatically open the verification URL in the default browser
+**--web, -w**: Automatically open the verification URL in the default browser (default: false)
 
-**--with-token**: Read a refresh token from stdin instead of performing the interactive Device Code flow
+**--with-token**: Read a refresh token from stdin instead of performing the interactive Device Code flow (default: false)
 
 #### help, h
 
@@ -58,7 +58,7 @@ Shows a list of commands or help for one command
 
 Print a valid access token for the LFX platform
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 #### help, h
 
@@ -68,7 +68,7 @@ Shows a list of commands or help for one command
 
 Show the current authentication status
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 #### help, h
 
@@ -78,7 +78,7 @@ Shows a list of commands or help for one command
 
 Remove stored LFX platform credentials
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 #### help, h
 
@@ -88,7 +88,7 @@ Shows a list of commands or help for one command
 
 List the system credential-store backends available on this OS
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 #### help, h
 
@@ -98,7 +98,7 @@ Shows a list of commands or help for one command
 
 List --env values accepted by `lfx auth login`, including aliases and default audiences
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 #### help, h
 
@@ -116,11 +116,11 @@ Make an authenticated call to an LFX platform API endpoint
 
 **--header, -H**="": Add an additional request header as 'key:value' (repeatable)
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 **--input**="": Read the request body from a file, or '-' for stdin (Content-Type defaults to application/json for POST/PUT unless overridden with -H)
 
-**--method, -X**="": HTTP method: GET, POST, PUT, or DELETE (default: GET, or POST if a body is explicitly supplied) (default: "GET")
+**--method, -X**="": HTTP method: GET, POST, PUT, or DELETE (default: GET, or POST if a body is explicitly supplied) (default: GET)
 
 **--query, -q**="": Filter the response body through a gjson expression before output
 
@@ -146,7 +146,7 @@ Query LFX v2 resources and organizations via the query service
       # Find committees with "board" in the name for a given project.
       lfx query-svc query-resources --type committee --parent <entity-id> --name board
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 ### query-resources
 
@@ -168,11 +168,11 @@ Locate resources by their type or parent, or search by display name or alias
 
 **--filters-or**="": Data field filter as 'field:value', at least one must match (repeatable)
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 **--name**="": Resource name or alias; supports typeahead
 
-**--page-size**="": Number of results per page (1-1000) (default: "50")
+**--page-size**="": Number of results per page (1-1000) (default: 50)
 
 **--page-token**="": Opaque token for the next page
 
@@ -180,7 +180,7 @@ Locate resources by their type or parent, or search by display name or alias
 
 **--query, -q**="": Filter the response body through a gjson expression before output
 
-**--sort**="": Sort order: name_asc, name_desc, updated_asc, updated_desc, best_match (default: "name_asc")
+**--sort**="": Sort order: name_asc, name_desc, updated_asc, updated_desc, best_match (default: name_asc)
 
 **--tags**="": Tag to match with OR logic (repeatable)
 
@@ -188,7 +188,7 @@ Locate resources by their type or parent, or search by display name or alias
 
 **--type**="": Resource type to search
 
-**--version**="": Version of the API (default: "1")
+**--version**="": Version of the API (default: 1)
 
 #### help, h
 
@@ -214,7 +214,7 @@ Count matching resources, optionally grouped by tag or with a cardinality metric
 
 **--group-by-size**="": Maximum number of groups (1-1000); requires --group-by
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 **--metric**="": Metric to compute, e.g. cardinality:<tag_prefix>
 
@@ -230,7 +230,7 @@ Count matching resources, optionally grouped by tag or with a cardinality metric
 
 **--type**="": Resource type to count
 
-**--version**="": Version of the API (default: "1")
+**--version**="": Version of the API (default: 1)
 
 #### help, h
 
@@ -242,7 +242,7 @@ Summarize membership records per organization and project
 
 **--b2b-org-uid**="": B2B organization UID to summarize
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 **--page-token**="": Opaque token for the next page
 
@@ -250,7 +250,7 @@ Summarize membership records per organization and project
 
 **--query, -q**="": Filter the response body through a gjson expression before output
 
-**--version**="": Version of the API (default: "1")
+**--version**="": Version of the API (default: 1)
 
 #### help, h
 
@@ -262,13 +262,13 @@ Locate a single organization by name or domain
 
 **--domain**="": Organization domain name, e.g. example.com (no scheme or path)
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 **--name**="": Organization name
 
 **--query, -q**="": Filter the response body through a gjson expression before output
 
-**--version**="": Version of the API (default: "1")
+**--version**="": Version of the API (default: 1)
 
 #### help, h
 
@@ -278,13 +278,13 @@ Shows a list of commands or help for one command
 
 Get organization suggestions for a typeahead query
 
-**--help, -h**: show help
+**--help, -h**: show help (default: false)
 
 **--query, -q**="": Filter the response body through a gjson expression before output
 
 **--search**="": Search query (required)
 
-**--version**="": Version of the API (default: "1")
+**--version**="": Version of the API (default: 1)
 
 #### help, h
 
