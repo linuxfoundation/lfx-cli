@@ -42,12 +42,15 @@ func main() {
 		Commands: []*cli.Command{
 			commands.NewAuthCommand(),
 			commands.NewAPICommand(),
+			commands.NewQueryServiceCommand(),
 			commands.NewDocsCommand(),
 		},
 	}
 
 	if err := app.Run(context.Background(), os.Args); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
+		// Errors can carry server-supplied text, so escape control
+		// characters before they reach the terminal.
+		fmt.Fprintln(os.Stderr, "Error:", commands.EscapeTerminalControls(err.Error()))
 		os.Exit(1)
 	}
 }
