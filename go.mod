@@ -12,6 +12,7 @@ require (
 	github.com/urfave/cli/v3 v3.14.0
 	goa.design/goa/v3 v3.34.0
 	golang.org/x/oauth2 v0.38.0
+	golang.org/x/term v0.48.0
 )
 
 require (
@@ -30,5 +31,4 @@ require (
 	github.com/tidwall/pretty v1.3.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
-	golang.org/x/term v0.48.0 // indirect
 )
