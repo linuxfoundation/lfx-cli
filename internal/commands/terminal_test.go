@@ -142,21 +142,28 @@ func TestCopyTerminalSafeShowsCompleteRunesBeforeMoreData(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- copyTerminalSafe(writes, pr, true) }()
 
-	for _, chunk := range []string{"ok\n", "ā"} {
-		if _, err := pw.Write([]byte(chunk)); err != nil {
-			t.Fatalf("write %q: %v", chunk, err)
+	for _, tc := range []struct{ chunk, want string }{
+		{chunk: "ok\n", want: "ok\n"},
+		{chunk: "ā", want: "ā"},
+		// Invalid lead bytes: the bytes after them can't complete a
+		// rune, so they must not be held back waiting for more data.
+		{chunk: "\xe0\n", want: `\xe0` + "\n"},
+		{chunk: "\xf0ok", want: `\xf0ok`},
+	} {
+		if _, err := pw.Write([]byte(tc.chunk)); err != nil {
+			t.Fatalf("write %q: %v", tc.chunk, err)
 		}
 		var got []byte
-		for len(got) < len(chunk) {
+		for len(got) < len(tc.want) {
 			select {
 			case w := <-writes:
 				got = append(got, w...)
 			case <-time.After(5 * time.Second):
-				t.Fatalf("chunk %q not shown while the reader stays open (got %q)", chunk, got)
+				t.Fatalf("chunk %q not shown while the reader stays open (got %q)", tc.chunk, got)
 			}
 		}
-		if string(got) != chunk {
-			t.Errorf("shown %q, want %q", got, chunk)
+		if string(got) != tc.want {
+			t.Errorf("chunk %q shown as %q, want %q", tc.chunk, got, tc.want)
 		}
 	}
 

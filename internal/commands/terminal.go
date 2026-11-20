@@ -77,6 +77,15 @@ func copyTerminalSafe(w io.Writer, r io.Reader, allowCRLF bool) error {
 			return err
 		}
 		need := runePeekLen(lead[0], allowCRLF)
+		if b := br.Buffered(); b < need && lead[0] >= utf8.RuneSelf {
+			// A valid rune can't fit in fewer than need bytes, so if
+			// FullRune already accepts the buffered bytes, they start an
+			// invalid sequence that decodes as a 1-byte error. Don't wait
+			// for more data that can't change the result.
+			if avail, _ := br.Peek(b); utf8.FullRune(avail) {
+				need = b
+			}
+		}
 		if err := flushBeforeRead(need); err != nil {
 			return err
 		}
