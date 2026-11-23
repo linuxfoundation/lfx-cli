@@ -549,7 +549,7 @@ func TestResolveEnvironmentUnknown(t *testing.T) {
 	}
 }
 
-func TestIdPErrorDropsUncodedResponseBody(t *testing.T) {
+func TestIdPErrorDropsBodyWithoutErrorCode(t *testing.T) {
 	// With no `error` code, RetrieveError.Error() embeds the raw body after a
 	// newline, so a hostile response could clear the screen or forge lines.
 	err := idpError("refresh access token", &oauth2.RetrieveError{
@@ -580,14 +580,14 @@ func TestIdPErrorEscapesCodeAndDescription(t *testing.T) {
 
 func TestIdPErrorTruncatesDescription(t *testing.T) {
 	// The cap lands inside the 2-byte "é", which must not be split.
-	desc := strings.Repeat("a", maxIdPErrorTextBytes-1) + "é" + strings.Repeat("b", 1000)
+	desc := strings.Repeat("a", maxIDPErrorTextBytes-1) + "é" + strings.Repeat("b", 1000)
 	err := idpError("request device code", &oauth2.RetrieveError{
 		Response:         &http.Response{StatusCode: http.StatusBadRequest},
 		ErrorCode:        "invalid_request",
 		ErrorDescription: desc,
 	})
 	got := err.Error()
-	want := "request device code: identity provider returned HTTP 400: invalid_request: " + strings.Repeat("a", maxIdPErrorTextBytes-1)
+	want := "request device code: identity provider returned HTTP 400: invalid_request: " + strings.Repeat("a", maxIDPErrorTextBytes-1)
 	if got != want {
 		t.Errorf("idpError = %q, want %q", got, want)
 	}

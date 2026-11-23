@@ -774,9 +774,9 @@ func terminalSafeText(s string) string {
 	return s
 }
 
-// maxIdPErrorTextBytes caps how much of an identity provider's error code
+// maxIDPErrorTextBytes caps how much of an identity provider's error code
 // or description an error message shows, since both are server-supplied.
-const maxIdPErrorTextBytes = 200
+const maxIDPErrorTextBytes = 200
 
 // idpError prefixes an error from an oauth2 device-code or token request.
 // An *oauth2.RetrieveError is replaced rather than wrapped: when the
@@ -799,13 +799,13 @@ func idpError(prefix string, err error) error {
 	return errors.New(msg)
 }
 
-// idpErrorText truncates s to maxIdPErrorTextBytes without splitting a
+// idpErrorText truncates s to maxIDPErrorTextBytes without splitting a
 // UTF-8 sequence, then escapes it with terminalSafeText. Invalid UTF-8 is
 // quoted too: a form-encoded response can decode to raw bytes such as 0x9b
 // (an 8-bit CSI), which terminalSafeText's control-rune check does not see.
 func idpErrorText(s string) string {
-	if len(s) > maxIdPErrorTextBytes {
-		n := maxIdPErrorTextBytes
+	if len(s) > maxIDPErrorTextBytes {
+		n := maxIDPErrorTextBytes
 		for n > 0 && !utf8.RuneStart(s[n]) {
 			n--
 		}
