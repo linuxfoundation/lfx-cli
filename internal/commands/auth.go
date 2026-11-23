@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/linuxfoundation/lfx-cli/internal/credstore"
 	"github.com/urfave/cli/v3"
@@ -205,7 +206,7 @@ func loginWithDeviceCode(
 	opts := []oauth2.AuthCodeOption{oauth2.SetAuthURLParam("audience", audience)}
 	resp, err := cfg.DeviceAuth(ctx, opts...)
 	if err != nil {
-		return fmt.Errorf("request device code: %w", err)
+		return idpError("request device code", err)
 	}
 
 	if err := printDeviceCodeInstructions(os.Stdout, resp, cmd.Bool(webFlagName)); err != nil {
@@ -234,7 +235,7 @@ func loginWithDeviceCode(
 		case errors.As(err, &retrieveErr) && retrieveErr.ErrorCode == "access_denied":
 			return errors.New("login was denied")
 		default:
-			return fmt.Errorf("unexpected error waiting for login: %w", err)
+			return idpError("unexpected error waiting for login", err)
 		}
 	}
 
@@ -488,7 +489,7 @@ func resolveAccessToken(ctx context.Context, cmd *cli.Command) (token string, en
 		return "", "", errors.New("session expired or revoked; run `lfx auth login` to log in again")
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("refresh access token: %w", err)
+		return "", "", idpError("refresh access token", err)
 	}
 
 	refreshToken := refreshed.RefreshToken
@@ -771,6 +772,49 @@ func terminalSafeText(s string) string {
 		return strconv.QuoteToASCII(s)
 	}
 	return s
+}
+
+// maxIDPErrorTextBytes caps how much of an identity provider's error code
+// or description an error message shows, since both are server-supplied.
+const maxIDPErrorTextBytes = 200
+
+// idpError prefixes an error from an oauth2 device-code or token request.
+// An *oauth2.RetrieveError is replaced rather than wrapped: when the
+// response has no `error` code, its Error method embeds the raw response
+// body after a newline, so a hostile IdP could forge output lines or inject
+// escape sequences. The replacement message holds only the HTTP status code
+// and, when present, the error code and description, truncated and escaped.
+func idpError(prefix string, err error) error {
+	var retrieveErr *oauth2.RetrieveError
+	if !errors.As(err, &retrieveErr) {
+		return fmt.Errorf("%s: %w", prefix, err)
+	}
+	msg := fmt.Sprintf("%s: identity provider returned HTTP %d", prefix, retrieveErr.Response.StatusCode)
+	if retrieveErr.ErrorCode != "" {
+		msg += ": " + idpErrorText(retrieveErr.ErrorCode)
+		if retrieveErr.ErrorDescription != "" {
+			msg += ": " + idpErrorText(retrieveErr.ErrorDescription)
+		}
+	}
+	return errors.New(msg)
+}
+
+// idpErrorText truncates s to maxIDPErrorTextBytes without splitting a
+// UTF-8 sequence, then escapes it with terminalSafeText. Invalid UTF-8 is
+// quoted too: a form-encoded response can decode to raw bytes such as 0x9b
+// (an 8-bit CSI), which terminalSafeText's control-rune check does not see.
+func idpErrorText(s string) string {
+	if len(s) > maxIDPErrorTextBytes {
+		n := maxIDPErrorTextBytes
+		for n > 0 && !utf8.RuneStart(s[n]) {
+			n--
+		}
+		s = s[:n]
+	}
+	if !utf8.ValidString(s) {
+		return strconv.QuoteToASCII(s)
+	}
+	return terminalSafeText(s)
 }
 
 // validateBrowserURL restricts OS launchers to absolute HTTPS URLs. These
